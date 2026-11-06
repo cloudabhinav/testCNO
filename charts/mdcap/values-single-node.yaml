@@ -1,13 +1,16 @@
-# Single-node Robin: RWX volumes with 1 copy (repl-2/3 needs 2-3 nodes)
+# Single-node Robin: robin-rwx asks for 2 copies on 2 hosts. Force 1 copy.
 nginx:
   persistentVolume:
     annotations:
       robin.io/rwx_force_single_replica: "1"
+      robin.io/replication: "1"
 vmetrics:
   persistentVolume:
     annotations:
       robin.io/rwx_force_single_replica: "1"
+      robin.io/replication: "1"
 grafana:
   persistentVolume:
     annotations:
       robin.io/rwx_force_single_replica: "1"
+      robin.io/replication: "1"
