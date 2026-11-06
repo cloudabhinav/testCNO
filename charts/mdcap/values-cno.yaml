@@ -1,0 +1,68 @@
+externalIp: 10.9.21.101
+global:
+  storageClass: robin
+imageCredentials:
+  password: robin123
+nginx:
+  env:
+    httpsNodePort: 30245
+    httpNodePort: 30246
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+postgres:
+  user: postgres
+  password: patron
+  server: mdcapds1-site0-postgresql-0.cno.svc.cluster.local
+  database: postgres
+etcd:
+  ip: mdcapds1-site0-etcd-0.cno.svc.cluster.local
+  port: 6611
+client:
+  db:
+    ip: mdcapds1-site0-etcd-0.cno.svc.cluster.local
+  resources:
+    requests:
+      cpu: 250m
+bmm:
+  deploymentType: non-telco
+engine:
+  secretNameOverride: mdcap-env-secrets-cno
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+grafana:
+  secretNameOverride: mdcap-env-secrets-cno
+  database:
+    releaseName: mdcapds1
+  resources:
+    requests:
+      cpu: 250m
+keycloak:
+  enabled: false
+artifactory:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 4
+      memory: 4Gi
+dashboard:
+  resources:
+    requests:
+      cpu: 250m
+eventmgr:
+  resources:
+    requests:
+      cpu: 250m
+logstore:
+  resources:
+    requests:
+      cpu: 250m
+vmetrics:
+  resources:
+    requests:
+      cpu: 250m

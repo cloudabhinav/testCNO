@@ -1,0 +1,109 @@
+# EKS-specific values for MDCAPDS chart
+# This file overrides the default values.yaml for AWS EKS deployment
+# Cluster: par-prd-app-eks-1
+# Namespace: rakuten-cno
+
+global:
+  imageRegistry: "231994803134.dkr.ecr.us-west-2.amazonaws.com" # Set global registry to 231994803134.dkr.ecr.us-west-2.amazonaws.com
+  # Registry is unauthenticated, no imagePullSecrets needed
+  imagePullSecrets: []
+  # Use existing AWS EBS storage class
+  storageClass: "gp2"
+
+# Image credentials for private registry (231994803134.dkr.ecr.us-west-2.amazonaws.com)
+imageCredentials:
+  registry: "231994803134.dkr.ecr.us-west-2.amazonaws.com"
+  username: "dummy" # Registry doesn't require auth, but field must not be empty
+  password: "dummy" # Registry doesn't require auth, but field must not be empty
+  email: "admin@mdcap.local"
+
+# ETCD configuration
+# Note: mdcapds deploys an ETCD cluster (StatefulSet with 3 pods for single-site)
+# The cluster is automatically formed during deployment
+etcd:
+  image:
+    registry: "231994803134.dkr.ecr.us-west-2.amazonaws.com" # Updated to use 231994803134.dkr.ecr.us-west-2.amazonaws.com
+    repository: "etcd-bash"
+    tag: 3.5.16
+    pullPolicy: IfNotPresent
+  persistentVolume:
+    storageClass: "gp2" # Using existing gp2 storage class
+    size: 5Gi
+    annotations: null
+  # Remove Robin-specific annotations
+  annotations: null
+  nodeSelector: {}
+  # AWS LoadBalancer Controller annotations for subnet selection
+  serviceAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0006d29b1a5109873,subnet-03a8d7e054306987f"
+
+# PostgreSQL configuration
+# ENABLED: Using internal PostgreSQL (Patroni/Spilo) for proper ETCD integration
+postgresql:
+  enabled: true # Enable internal PostgreSQL deployment
+  image:
+    registry: "231994803134.dkr.ecr.us-west-2.amazonaws.com" # Updated to use 231994803134.dkr.ecr.us-west-2.amazonaws.com
+    repository: "spilo-15"
+    tag: 3.1-p1
+    pullPolicy: IfNotPresent
+  persistentVolume:
+    storageClass: "gp2" # Using existing gp2 storage class
+    size: 50Gi
+    annotations: null
+  # Remove Robin-specific annotations
+  annotations: null
+  nodeSelector: {}
+  # AWS LoadBalancer Controller annotations for subnet selection
+  serviceAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0006d29b1a5109873,subnet-03a8d7e054306987f"
+
+# Patroni Exporter configuration
+patroniExporter:
+  image:
+    registry: "231994803134.dkr.ecr.us-west-2.amazonaws.com"
+    repository: "patroni-exporter"
+    tag: 1.5
+    pullPolicy: IfNotPresent
+
+# PostgreSQL Exporter configuration
+postgresqlExporter:
+  image:
+    registry: "231994803134.dkr.ecr.us-west-2.amazonaws.com"
+    repository: "postgres_exporter"
+    tag: 0.12.0
+    pullPolicy: IfNotPresent
+  # AWS LoadBalancer Controller annotations for subnet selection
+  serviceAnnotations:
+    service.beta.kubernetes.io/aws-load-balancer-subnets: "subnet-0006d29b1a5109873,subnet-03a8d7e054306987f"
+
+# Remove Robin-specific pod annotations
+podAnnotations: {}
+
+# Peers configuration
+# IMPORTANT: For single-site EKS deployment, ETCD runs IN your cluster (3 pods)
+# The peers array with 1 entry just indicates "single-site mode"
+# For single-site: use placeholder IP (same as ip above)
+# For multi-site: list all peer IPs (for distributed ETCD across multiple clusters)
+peers:
+  - "10.62.114.198" # Placeholder private IP for single-site EKS deployment
+
+# Current site IP - REQUIRED for ETCD configuration
+# This is used for:
+# - External IPs on LoadBalancer services (for external access to ETCD)
+# - ETCD advertised client URLs (how ETCD tells clients where to connect)
+#
+# For EKS: Use placeholder private IP (10.0.0.1) since ETCD uses LoadBalancer services
+# which provide stable external IPs. The placeholder satisfies the template requirement
+# but won't affect functionality - clients connect via LoadBalancer external IPs.
+# Kubernetes doesn't allow loopback IPs (127.0.0.1) in externalIPs field.
+#
+# After deployment, you can optionally update this with LoadBalancer external IP:
+#   kubectl get svc -n rakuten-cno -l app=mdcapds-etcd -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'
+ip: "192.168.14.216" # Placeholder private IP for EKS - LoadBalancer provides real external IPs
+
+# Installation mode: "install" for new cluster, "scale" for adding to existing cluster
+mode: "install"
+
+# Disaster recovery configuration
+dr:
+  enabled: false

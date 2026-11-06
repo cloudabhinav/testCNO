@@ -1,0 +1,395 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/artifactory-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-helmrepo-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/helmrepo-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-imgload-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/imgload-entrypoint.sh").AsConfig | nindent 2 }}
+---
+{{- if .Values.dr.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-dr-rclone-cron-handler-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/artifactory-dr-rclone-cron-handler.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-dr-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/artifactory-dr-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-dr-rclone-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/config/artifactory-dr-rclone.config").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-dr-env
+  namespace: {{ .Release.Namespace }}
+data:
+  MINIO_ACCESS_KEY_ID: "{{ .Values.dr.artifactory.minioAccessKeyId }}"
+  MINIO_SECRET_ACCESS_KEY: "{{ .Values.dr.artifactory.minioSecretAccessKey }}"
+  MINIO_ENDPOINT: "{{ .Values.dr.artifactory.minioEndpoint }}"
+  MINIO_REGION: "{{ .Values.dr.artifactory.minioRegion }}"
+  MINIO_BUCKET_NAME: {{ .Values.dr.artifactory.minioBucketName }}
+  RCLONE_SCHEDULE: "{{ .Values.dr.artifactory.backupSchedule }}"
+  RCLONE_LOG_VERBOSITY: "{{ .Values.dr.artifactory.logVerbosity }}"
+  DR_ROLE: "{{ .Values.dr.role }}"
+---
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-artifactory-env
+  namespace: {{ .Release.Namespace }}
+data:
+  RUST_LOG: actix_web=debug
+  RUST_BACKTRACE: "1"
+  POD_NAME: {{ .Release.Name }}-artifactory
+  appname: {{ .Release.Name }}
+  NGINX_NP_PORT_HTTP: "8080"
+  NGINX_NP_PORT: "9443"
+{{ if .Values.externalIp }}
+  MDCAP_NGINX_PUBLIC_IP: {{ .Values.externalIp }}
+{{ end }}
+{{ if .Values.dr.enabled }}
+  DR_ROLE: "{{ .Values.dr.role }}"
+{{ end }}
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    role: {{ .Release.Name }}-artifactory-depl
+    app: {{ .Release.Name }}-artifactory
+    release: {{ .Release.Name }}
+  name: {{ template "artifactory.fullname" . }}
+{{- if .Values.artifactory.annotations }}
+  annotations:
+{{ toYaml .Values.artifactory.annotations | indent 4 }}
+{{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-artifactory
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+    {{- if .Release.IsUpgrade }}
+      maxUnavailable: 1
+    {{- else }}
+      maxUnavailable: 30%
+    {{- end }}
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-artifactory
+        app: {{ .Release.Name }}-artifactory
+        release: {{ .Release.Name }}
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8443"
+        prometheus.io/scheme: https
+        prometheus.io/scrape: "true"
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+        drrole: {{ .Values.dr.role | quote }}
+{{- if .Values.artifactory.annotations }}
+{{ toYaml .Values.artifactory.annotations | indent 8 }}
+{{- end }}
+      name: {{ .Release.Name }}-artifactory
+      namespace: {{ .Release.Namespace }}
+    spec:
+{{- include "artifactory.imagePullSecrets" . | nindent 6 }}
+{{ if .Values.artifactory.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.artifactory.nodeSelector | indent 8 }}
+{{ end }}
+      containers:
+      - command: 
+        - /scripts/artifactory-entrypoint.sh
+        - /bin/bash
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-artifactory-env        
+      #- command: ["/bin/bash"]
+      #  args: ["-c", "sleep 99999"]
+        image: {{ include "artifactory.image" . }}
+        imagePullPolicy: "{{ .Values.artifactory.image.pullPolicy }}"
+        name: {{ .Release.Name }}-artifactory
+        {{- if eq .Values.dr.role "primary"}}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 5
+          failureThreshold: 2
+          initialDelaySeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 2
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          periodSeconds: 5
+          failureThreshold: 2
+          initialDelaySeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 2
+        {{- end}}
+        resources:
+{{ toYaml .Values.artifactory.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /.robin/scripts/certs
+          name: cert-secret
+          readOnly: true
+        - mountPath: /scripts/artifactory-entrypoint.sh
+          name: entrypoint-script
+          subPath: artifactory-entrypoint.sh
+        - mountPath: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-artifactory-volume-01
+      
+      {{- if .Values.dr.enabled }}
+      - command:
+        - /etc/scripts/artifactory-dr-entrypoint.sh
+        - /bin/bash
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-artifactory-dr-env
+        image: "{{ .Values.dr.artifactory.sidecar.image }}"
+        imagePullPolicy: "{{ .Values.dr.artifactory.sidecar.imagePullPolicy }}"
+        name: {{ .Release.Name }}-artifactory-dr
+        resources:
+{{ toYaml .Values.dr.artifactory.sidecar.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/scripts/artifactory-dr-entrypoint.sh
+          name: artifactory-dr-entrypoint-script
+          subPath: artifactory-dr-entrypoint.sh
+        - mountPath: /etc/scripts/config/artifactory-dr-rclone.config
+          name: artifactory-dr-rclone
+          subPath: artifactory-dr-rclone.config
+        - mountPath: /etc/scripts/artifactory-dr-rclone-cron-handler.sh
+          name: artifactory-dr-rclone-cron-handler-configmap
+          subPath: artifactory-dr-rclone-cron-handler.sh
+        - mountPath: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-artifactory-volume-01
+      {{- end }}
+
+      - name: {{ .Release.Name }}-registry
+        image: "{{ .Values.artifactory.registry.image }}"
+        imagePullPolicy: "{{ .Values.artifactory.image.pullPolicy }}"
+        env:
+        - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+          value: "{{ .Values.artifactory.persistentVolume.mountPath }}/registry"
+        - name: REGISTRY_HTTP_ADDR
+          value: "0.0.0.0:5000"
+        - name: REGISTRY_LOG_LEVEL
+          value: warn
+        ports:
+        - containerPort: 5000
+          name: registry
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /v2/
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+          timeoutSeconds: 3
+        readinessProbe:
+          httpGet:
+            path: /v2/
+            port: 5000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 2
+          timeoutSeconds: 3
+        resources: {{ toYaml .Values.artifactory.registry.resources | nindent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-artifactory-volume-01
+
+      - command:
+        - /scripts/helmrepo-entrypoint.sh
+        - /bin/bash
+        env:
+        - name: HELMREPO_MOUNT_PATH
+          value: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+        image: "{{ .Values.artifactory.helmrepo.image }}"
+        imagePullPolicy: "{{ .Values.artifactory.image.pullPolicy }}"
+        name: {{ .Release.Name }}-helmrepo
+        resources: {{ toYaml .Values.artifactory.helmrepo.resources | nindent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /scripts/helmrepo-entrypoint.sh
+          name: helmrepo-entrypoint-script
+          subPath: helmrepo-entrypoint.sh
+        - mountPath: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-artifactory-volume-01
+
+      - command:
+        - /scripts/imgload-entrypoint.sh
+        - /bin/bash
+        env:
+        - name: IMGLOAD_MOUNT_PATH
+          value: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+        image: "{{ .Values.artifactory.imgload.image }}"
+        imagePullPolicy: "{{ .Values.artifactory.image.pullPolicy }}"
+        name: {{ .Release.Name }}-imgload
+        resources: {{ toYaml .Values.artifactory.imgload.resources | nindent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /scripts/imgload-entrypoint.sh
+          name: imgload-entrypoint-script
+          subPath: imgload-entrypoint.sh
+        - mountPath: "{{ .Values.artifactory.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-artifactory-volume-01
+
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostAliases:
+      hostname: {{ .Release.Name }}-artifactory
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-artifactory-entrypoint-configmap
+          defaultMode: 0755
+      - name: helmrepo-entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-helmrepo-entrypoint-configmap
+          defaultMode: 0755
+      - name: imgload-entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-imgload-entrypoint-configmap
+          defaultMode: 0755
+      {{- if .Values.dr.enabled }}
+      - name: artifactory-dr-entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-artifactory-dr-entrypoint-configmap
+          defaultMode: 0755
+      - name: artifactory-dr-rclone
+        configMap:
+          name: {{ .Release.Name }}-artifactory-dr-rclone-configmap
+          defaultMode: 0755
+      - name: artifactory-dr-rclone-cron-handler-configmap
+        configMap:
+          name: {{ .Release.Name }}-artifactory-dr-rclone-cron-handler-configmap
+          defaultMode: 0755
+      {{- end }}
+      
+      - name: {{ .Release.Name }}-artifactory-volume-01
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-artifactory-pvc-01
+      - name: cert-secret
+        secret:
+          secretName: {{ .Release.Name }}-tlscert-secret
+          defaultMode: 0420
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-artifactory-pvc-01
+  annotations:
+{{- include "util.storage.rwxAnnotation" ( dict "persistentVolume" .Values.artifactory.persistentVolume ) | nindent 4 }}
+{{- if .Values.artifactory.persistentVolume.annotations }}
+{{ toYaml .Values.artifactory.persistentVolume.annotations | nindent 4 }}
+{{- end }}
+spec:
+  accessModes:
+    - {{ .Values.artifactory.persistentVolume.accessMode }}
+{{- include "artifactory.storageclass.name" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.artifactory.persistentVolume.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-artifactory
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: https
+      port: 8443
+      protocol: TCP
+    - name: http
+      port: 8080
+      protocol: TCP
+    - name: registry
+      port: 5000
+      protocol: TCP
+  selector:
+    app: {{ .Release.Name }}-artifactory
+  type: ClusterIP
+

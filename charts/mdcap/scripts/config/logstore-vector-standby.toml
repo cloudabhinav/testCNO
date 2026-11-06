@@ -1,0 +1,30 @@
+#
+# Copyright (C) 2024 Robin.io All Rights Reserved.
+#
+[sources.my_kafka]
+type = "kafka"
+bootstrap_servers = "10.9.82.43:30929"
+group_id = "console-consumer-76680"
+topics = [ "test" ]
+
+[transforms.my_transform]
+type = "remap"
+inputs = [ "my_kafka" ]
+source = '''
+message = parse_json!(string!(.message))
+.file_content = get!(value: message, path: ["message"])
+.file_path = get!(value: message, path: ["file"])
+.message = .file_content
+'''
+
+
+[sinks.my_sink]
+type = "file"
+inputs = ["my_transform"]
+encoding.codec = "text"
+path = "{{ file_path }}"
+
+[api]
+enabled = true
+playground = false
+#address = "0.0.0.0:8686"

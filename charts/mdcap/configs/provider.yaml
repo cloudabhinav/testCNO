@@ -1,0 +1,16 @@
+apiVersion: 1
+providers:
+  # One provider for the whole tree. Several providers on the same path made Grafana scan every dashboard once
+  # per provider every updateIntervalSeconds, each scan opening its own Postgres connections (VMS-2900).
+  # The dashboards are copied in once by grafana.sh at pod start, so a long interval is enough.
+  - name: 'mdcap'
+    folder: 'MDCAP'
+    orgId: 1
+    uid: '000000001'
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 3600
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: true

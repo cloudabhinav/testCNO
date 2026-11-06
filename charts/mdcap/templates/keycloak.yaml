@@ -1,0 +1,533 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+
+{{- if eq .Values.keycloak.enabled true }}
+
+{{/* Validate googleLdap config before rendering any resources */}}
+{{- include "keycloak.googleLdap.validate" . }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     GOOGLE LDAP CLIENT CERT SECRET
+     Created from chart-relative cert files when clientCertFile + clientKeyFile
+     are provided (Option A). Skipped entirely when using a pre-existing secret
+     (Option B — stunnel.clientCertSecretName).
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+{{- if and .Values.keycloak.googleLdap.enabled
+           .Values.keycloak.googleLdap.clientCertFile
+           .Values.keycloak.googleLdap.clientKeyFile }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "keycloak.googleLdap.certSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{ .Values.keycloak.googleLdap.stunnel.clientCertKey }}: {{ .Files.Get .Values.keycloak.googleLdap.clientCertFile | b64enc | quote }}
+  {{ .Values.keycloak.googleLdap.stunnel.clientKeyKey }}:  {{ .Files.Get .Values.keycloak.googleLdap.clientKeyFile  | b64enc | quote }}
+{{- end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     CUSTOM CA TRUSTSTORE SECRET
+     Optional — only for non-standard CA environments.
+     Created only when customTruststore.enabled=true AND caCert PEM is provided
+     inline. Skipped when referencing a pre-existing secret.
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+{{- if and .Values.keycloak.googleLdap.enabled
+           .Values.keycloak.googleLdap.customTruststore.enabled
+           .Values.keycloak.googleLdap.customTruststore.caCert }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "keycloak.customTruststore.caSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{ .Values.keycloak.googleLdap.customTruststore.caCertSecretKey }}: {{ .Values.keycloak.googleLdap.customTruststore.caCert | b64enc | quote }}
+{{- end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     STUNNEL CONFIGMAP
+     Rendered only when googleLdap.enabled=true.
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+{{- if .Values.keycloak.googleLdap.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "keycloak.stunnel.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+data:
+  stunnel.conf: |
+    pid = /var/run/stunnel-google-ldap.pid
+    foreground = yes
+    debug = {{ .Values.keycloak.googleLdap.stunnel.logLevel }}
+    output = /var/log/stunnel-google-ldap.log
+
+    [google-ldap]
+    client = yes
+    accept  = 127.0.0.1:{{ .Values.keycloak.googleLdap.stunnel.listenPort }}
+    connect = {{ .Values.keycloak.googleLdap.stunnel.remoteHost }}:{{ .Values.keycloak.googleLdap.stunnel.remotePort }}
+    cert = /etc/stunnel/certs/{{ .Values.keycloak.googleLdap.stunnel.clientCertKey }}
+    key  = /etc/stunnel/certs/{{ .Values.keycloak.googleLdap.stunnel.clientKeyKey }}
+{{- end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     KEYCLOAK ENV CONFIGMAP
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-keycloak-env-vars
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+data:
+  BITNAMI_DEBUG: "false"
+  KEYCLOAK_PRODUCTION: "true"
+  KC_LOG_LEVEL: {{ .Values.keycloak.logging.level | quote }}
+  KC_LOG_CONSOLE_OUTPUT: {{ .Values.keycloak.logging.output | quote }}
+  KC_BOOTSTRAP_ADMIN_USERNAME: {{ .Values.keycloak.auth.adminUser | quote }}
+  KC_HTTP_PORT: {{ .Values.keycloak.containerPorts.http | quote }}
+  KC_HTTP_MANAGEMENT_PORT: {{ .Values.keycloak.containerPorts.management | quote }}
+  KC_HTTP_ENABLED: "true"
+  KC_PROXY_HEADERS: "xforwarded"
+  KC_DB_URL: jdbc:postgresql://{{ .Release.Name }}-pgsql.{{ .Release.Namespace }}.svc.cluster.local:6621/keycloak?currentSchema=public&targetServerType=primary&connectTimeout=5&socketTimeout=10&loginTimeout=5&tcpKeepAlive=true
+  KC_DB_SCHEMA: {{ include "keycloak.database.schema" . | quote }}
+  KC_CACHE: {{ ternary "ispn" "local" .Values.keycloak.cache.enabled | quote }}
+  {{- if .Values.keycloak.cache.enabled }}
+    {{- if .Values.keycloak.cache.stack }}
+  KC_CACHE_STACK: {{ .Values.keycloak.cache.stack | quote }}
+    {{- end }}
+    {{- if .Values.keycloak.cache.configFile }}
+  KC_CACHE_CONFIG_FILE: {{ .Values.keycloak.cache.configFile | quote }}
+    {{- end }}
+  JAVA_OPTS_APPEND: {{ (printf "-Djgroups.dns.query=%s.%s.svc.%s"
+      (ternary (include "keycloak.headless.ispn.serviceName" .)
+              (include "keycloak.headless.serviceName" .)
+              .Values.keycloak.cache.useHeadlessServiceWithAppVersion)
+      .Values.keycloak.namespaceOverride
+      .Values.keycloak.clusterDomain)
+      | printf "%s -Dquarkus.datasource.jdbc.acquisition-timeout=60s" | quote }}
+  {{- end }}
+  KC_HTTP_RELATIVE_PATH: "/keycloak"
+  KC_SPI_ADMIN_REALM: "master"
+  KC_PROXY: edge
+  KEYCLOAK_ENABLE_PROXY: "true"
+  KC_DB_USERNAME: {{ .Values.keycloak.externalDatabase.user | quote }}
+  KC_DB_PASSWORD: {{ .Values.keycloak.externalDatabase.password | quote }}
+  KC_METRICS_ENABLED: "false"
+  KC_BOOTSTRAP_ADMIN_PASSWORD_FILE: /opt/bitnami/keycloak/secrets/admin-password
+  {{- if and .Values.keycloak.googleLdap.enabled
+             .Values.keycloak.googleLdap.customTruststore.enabled }}
+  KC_SPI_TRUSTSTORE_FILE_FILE: {{ printf "%s/%s"
+    .Values.keycloak.googleLdap.customTruststore.mountPath
+    .Values.keycloak.googleLdap.customTruststore.fileName | quote }}
+  KC_SPI_TRUSTSTORE_FILE_PASSWORD: {{ .Values.keycloak.googleLdap.customTruststore.password | quote }}
+  KC_SPI_TRUSTSTORE_FILE_HOSTNAME_VERIFICATION_POLICY: "ANY"
+  KC_HTTPS_TRUST_STORE_FILE: {{ printf "%s/%s"
+    .Values.keycloak.googleLdap.customTruststore.mountPath
+    .Values.keycloak.googleLdap.customTruststore.fileName | quote }}
+  KC_HTTPS_TRUST_STORE_PASSWORD: {{ .Values.keycloak.googleLdap.customTruststore.password | quote }}
+  {{- end }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     KEYCLOAK SECRET  (admin-password + db-password)
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+type: Opaque
+data:
+  admin-password: {{ .Values.keycloak.adminPassword | b64enc | quote }}
+  db-password: {{ .Values.keycloak.externalDatabase.password | b64enc | quote }}
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     HEADLESS SERVICE  (pod-to-pod discovery + cache clustering)
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-keycloak-headless
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http
+      port: {{ .Values.keycloak.containerPorts.http }}
+      protocol: TCP
+      targetPort: http
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/component: keycloak
+    app.kubernetes.io/part-of: keycloak
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     CLUSTER-IP SERVICE  (internal cluster access)
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  sessionAffinity: None
+  ports:
+    - name: http
+      port: {{ .Values.keycloak.service.ports.http }}
+      protocol: TCP
+      targetPort: http
+  selector:
+    app.kubernetes.io/component: keycloak
+    app.kubernetes.io/part-of: keycloak
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     POSTGRESQL PROXY SERVICE  (routes to spilo primary)
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-pgsql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  ports:
+    - name: postgresql
+      port: 6621
+      protocol: TCP
+      targetPort: 5432
+  selector:
+    spilo-role: master
+  type: ClusterIP
+
+{{/* ═══════════════════════════════════════════════════════════════════════════
+     STATEFULSET
+     ═══════════════════════════════════════════════════════════════════════════ */}}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-keycloak
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  replicas: 1
+  serviceName: {{ .Release.Name }}-keycloak-headless
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: keycloak
+      app.kubernetes.io/part-of: keycloak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: keycloak
+        app.kubernetes.io/part-of: keycloak
+        app: {{ .Release.Name }}-keycloak
+        name: {{ .Release.Name }}-keycloak
+    spec:
+      serviceAccount: default
+      serviceAccountName: default
+{{- include "keycloak.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+
+        {{/* ── prepare-write-dirs ──────────────────────────────────────────── */}}
+        - name: prepare-write-dirs
+          image: {{ template "keycloak.image" . }}
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.keycloak.containerSecurityContext "context" .) | nindent 12 }}
+          command:
+            - /bin/bash
+          args:
+            - -ec
+            - |
+              . /opt/bitnami/scripts/liblog.sh
+              info "Copying writable dirs to empty dir"
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/lib/quarkus /emptydir/app-quarkus-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/data /emptydir/app-data-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/providers /emptydir/app-providers-dir
+              cp -r --preserve=mode,timestamps /opt/bitnami/keycloak/themes /emptydir/app-themes-dir
+              info "Copy operation completed"
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /emptydir
+
+        {{/* ── postgresql-keycloak ─────────────────────────────────────────── */}}
+        - name: postgresql-keycloak
+          image: {{ include "client.image" . }}
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          env:
+            - name: RELEASE_NAME
+              value: "{{ .Release.Name }}"
+            - name: RELEASE_NAMESPACE
+              value: "{{ .Release.Namespace }}"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-keycloak
+                  key: db-password
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "Init container: postgresql-keycloak"
+              if [ "$(PGPASSWORD=${PGPASSWORD} psql \
+                    -h "${RELEASE_NAME}-pgsql.${RELEASE_NAMESPACE}.svc.cluster.local" \
+                    -p 6621 -U postgres -t -A \
+                    -c "SELECT 1 FROM pg_database WHERE datname = 'keycloak'")" = "1" ]; then
+                echo "Database: keycloak already exists."
+              else
+                PGPASSWORD=${PGPASSWORD} psql \
+                  -h "${RELEASE_NAME}-pgsql.${RELEASE_NAMESPACE}.svc.cluster.local" \
+                  -p 6621 -A -U postgres \
+                  -c "CREATE DATABASE keycloak"
+              fi
+
+        {{/* ── build-truststore (optional: custom CA envs only) ────────────── */}}
+        {{- if and .Values.keycloak.googleLdap.enabled
+                   .Values.keycloak.googleLdap.customTruststore.enabled }}
+        - name: build-truststore
+          image: {{ template "keycloak.image" . }}
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.keycloak.containerSecurityContext "context" .) | nindent 12 }}
+          command:
+            - /bin/bash
+          args:
+            - -ec
+            - |
+              TRUSTSTORE_DIR="{{ .Values.keycloak.googleLdap.customTruststore.mountPath }}"
+              TRUSTSTORE_FILE="${TRUSTSTORE_DIR}/{{ .Values.keycloak.googleLdap.customTruststore.fileName }}"
+              CA_CERT_FILE="/tmp/truststore-ca/{{ .Values.keycloak.googleLdap.customTruststore.caCertSecretKey }}"
+
+              mkdir -p "${TRUSTSTORE_DIR}"
+              echo "Building truststore at ${TRUSTSTORE_FILE} from ${CA_CERT_FILE}"
+              keytool -import \
+                -noprompt \
+                -alias {{ .Values.keycloak.googleLdap.customTruststore.alias | quote }} \
+                -file  "${CA_CERT_FILE}" \
+                -keystore "${TRUSTSTORE_FILE}" \
+                -storepass {{ .Values.keycloak.googleLdap.customTruststore.password | quote }} \
+                -trustcacerts
+              echo "Truststore built successfully. Listing aliases:"
+              keytool -list \
+                -keystore "${TRUSTSTORE_FILE}" \
+                -storepass {{ .Values.keycloak.googleLdap.customTruststore.password | quote }} \
+                -v | grep "Alias name"
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /emptydir
+            - name: {{ include "keycloak.truststore.volumeName" . }}
+              mountPath: {{ .Values.keycloak.googleLdap.customTruststore.mountPath }}
+            - name: truststore-ca-cert
+              mountPath: /tmp/truststore-ca
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+        {{- end }}
+
+      containers:
+
+        {{/* ── keycloak ────────────────────────────────────────────────────── */}}
+        - name: keycloak
+          image: {{ template "keycloak.image" . }}
+          imagePullPolicy: {{ .Values.keycloak.image.pullPolicy }}
+          {{- if .Values.keycloak.containerSecurityContext.enabled }}
+          securityContext: {{- include "common.compatibility.renderSecurityContext" (dict "secContext" .Values.keycloak.containerSecurityContext "context" .) | nindent 12 }}
+          {{- end }}
+          env:
+            - name: KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-keycloak
+                  key: admin-password
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.database.secretName" . }}
+                  key: {{ include "keycloak.database.secretPasswordKey" . }}
+            - name: KC_DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.database.secretName" . }}
+                  key: {{ include "keycloak.database.secretUserKey" . }}
+          envFrom:
+            - configMapRef:
+                name: {{ .Release.Name }}-keycloak-env-vars
+          ports:
+            - name: http
+              containerPort: {{ .Values.keycloak.containerPorts.http }}
+              protocol: TCP
+            - name: discovery
+              containerPort: 7800
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: {{ .Values.keycloak.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.keycloak.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.keycloak.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.keycloak.livenessProbe.failureThreshold }}
+            successThreshold: {{ .Values.keycloak.livenessProbe.successThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /keycloak/realms/master
+              port: http
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.keycloak.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.keycloak.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.keycloak.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.keycloak.readinessProbe.failureThreshold }}
+            successThreshold: {{ .Values.keycloak.readinessProbe.successThreshold }}
+          volumeMounts:
+            - name: empty-dir
+              mountPath: /tmp
+              subPath: tmp-dir
+            - name: empty-dir
+              mountPath: /bitnami/keycloak
+              subPath: app-volume-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/conf
+              subPath: app-conf-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/lib/quarkus
+              subPath: app-quarkus-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/data
+              subPath: app-data-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/providers
+              subPath: app-providers-dir
+            - name: empty-dir
+              mountPath: /opt/bitnami/keycloak/themes
+              subPath: app-themes-dir
+            - name: keycloak-secrets
+              mountPath: /opt/bitnami/keycloak/secrets
+            {{- if and .Values.keycloak.googleLdap.enabled
+                       .Values.keycloak.googleLdap.customTruststore.enabled }}
+            - name: {{ include "keycloak.truststore.volumeName" . }}
+              mountPath: {{ .Values.keycloak.googleLdap.customTruststore.mountPath }}
+            {{- end }}
+
+        {{/* ── stunnel sidecar (Google Secure LDAP only) ──────────────────── */}}
+        {{- if .Values.keycloak.googleLdap.enabled }}
+        - name: stunnel
+          image: {{ include "keycloak.stunnel.image" . }}
+          imagePullPolicy: {{ .Values.keycloak.googleLdap.stunnel.image.pullPolicy }}
+          command:
+            - stunnel
+            - /etc/stunnel/stunnel.conf
+          ports:
+            - name: ldaps-stunnel
+              containerPort: {{ .Values.keycloak.googleLdap.stunnel.listenPort }}
+              protocol: TCP
+          volumeMounts:
+            - name: stunnel-config
+              mountPath: /etc/stunnel
+            - name: google-ldap-cert
+              mountPath: /etc/stunnel/certs
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+        {{- end }}
+
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostname: {{ .Release.Name }}-keycloak
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      {{- if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+
+      volumes:
+        {{/* ── always-present volumes ──────────────────────────────────────── */}}
+        - name: empty-dir
+          emptyDir: {}
+        - name: keycloak-secrets
+          projected:
+            defaultMode: 0420
+            sources:
+              - secret:
+                  name: {{ .Release.Name }}-keycloak
+              - secret:
+                  name: {{ include "keycloak.database.secretName" . }}
+                  items:
+                    - key: {{ include "keycloak.database.secretPasswordKey" . }}
+                      path: db-password
+
+        {{/* ── googleLdap volumes (conditional) ───────────────────────────── */}}
+        {{- if .Values.keycloak.googleLdap.enabled }}
+        - name: stunnel-config
+          configMap:
+            defaultMode: 0420
+            name: {{ include "keycloak.stunnel.configMapName" . }}
+        - name: google-ldap-cert
+          secret:
+            defaultMode: 0420
+            secretName: {{ include "keycloak.googleLdap.certSecretName" . }}
+        {{- end }}
+
+        {{/* ── customTruststore volumes (conditional) ──────────────────────── */}}
+        {{- if and .Values.keycloak.googleLdap.enabled
+                   .Values.keycloak.googleLdap.customTruststore.enabled }}
+        - name: {{ include "keycloak.truststore.volumeName" . }}
+          emptyDir: {}
+        - name: truststore-ca-cert
+          secret:
+            defaultMode: 0420
+            secretName: {{ include "keycloak.customTruststore.caSecretName" . }}
+        {{- end }}
+
+{{- end }}{{/* end keycloak.enabled */}}

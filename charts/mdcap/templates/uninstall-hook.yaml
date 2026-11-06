@@ -1,0 +1,120 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-uninstallhook-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/uninstallhook-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-uninstallhook-env
+  namespace: {{ .Release.Namespace }}
+data:
+  MDCAP_DEFAULT_CONTEXT: "https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.engine.rorcPort }}"
+  MDCAP_SSL_CERTS_DIR: /etc/mdcap/certs
+  POD_NAME: {{ .Release.Name }}-deletehook
+  POD_NAMESPACE: {{ .Release.Namespace }}
+  ADD_DELAY_SEC_BEFORE_UNINSTALL: ""
+  MDCAP_RELEASE_NAME: {{ .Release.Name | quote }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-predelete-hook
+  namespace: {{ .Release.Namespace }}
+  annotations:
+      "helm.sh/hook": "pre-delete"
+      "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}"
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+    spec:
+{{- include "taskrunner.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - command:
+        - /uninstallhook-entrypoint.sh
+        - /bin/bash
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-uninstallhook-env
+        image: {{ include "taskrunner.image" . }}
+        imagePullPolicy: IfNotPresent
+        name: {{ .Release.Name }}-predelete-hook
+        volumeMounts:
+        - mountPath: /uninstallhook-entrypoint.sh
+          name: entrypoint-script
+          subPath: uninstallhook-entrypoint.sh
+        resources:
+{{ toYaml .Values.predeleteHook.resources | indent 10 }}
+      restartPolicy: Never
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 0
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-uninstallhook-entrypoint-configmap
+          defaultMode: 0755
+---
+# This deletes the cert secrets created in pre-install hook.
+# It uses upgrade image which is an alpine image with curl installed.
+# We're doing this in pre-delete because the rolebinding created during install
+# will not be available in post-delete and without that DELETE API will fail.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-predelete-hook-certs
+  namespace: {{ .Release.Namespace }}
+  annotations:
+      "helm.sh/hook": "pre-delete"
+      "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}"
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+    spec:
+{{- include "upgrade.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - command:
+        - "/bin/sh"
+        - "-ec"
+        - |
+          curl -X DELETE -kv https://kubernetes.default.svc/api/v1/namespaces/${NAMESPACE}/secrets/${SECRET_NAME} \
+            -H "Authorization: Bearer $( cat /var/run/secrets/kubernetes.io/serviceaccount/token )" \
+            -H "Content-Type: application/json" \
+            -H "Accept: application/json" --retry 3 --retry-delay 5
+        env:
+        - name: SECRET_NAME
+          value: {{ .Release.Name }}-tlscert-secret
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        image: {{ include "upgrade.image" . }}
+        imagePullPolicy: IfNotPresent
+        name: {{ .Release.Name }}-predelete-hook
+        resources:
+{{ toYaml .Values.predeleteHook.resources | indent 10 }}
+      restartPolicy: Never
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 0

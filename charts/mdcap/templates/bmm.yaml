@@ -1,0 +1,159 @@
+{{/*
+Copyright (C) 2023 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-bmm-env
+  namespace: {{ .Release.Namespace }}
+data:
+{{- if .Values.bmm.env.ipam_url }}
+  BMM_IPAM_URL: {{ .Values.bmm.env.ipam_url | quote }}
+{{- else }}
+  BMM_IPAM_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.ipam_url_ext }}
+  BMM_IPAM_URL_EXT: {{ .Values.bmm.env.ipam_url_ext | quote }}
+{{- else }}
+  BMM_IPAM_URL_EXT: ""
+{{- end }}
+{{- if .Values.bmm.env.naming_manager_url }}
+  BMM_NAMING_MANAGER_URL: {{ .Values.bmm.env.naming_manager_url | quote }}
+{{- else }}
+  BMM_NAMING_MANAGER_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.naming_manager_url_ext }}
+  BMM_NAMING_MANAGER_URL_EXT: {{ .Values.bmm.env.naming_manager_url_ext | quote }}
+{{- else }}
+  BMM_NAMING_MANAGER_URL_EXT: ""
+{{- end }}
+{{- if .Values.bmm.env.notification_listener_url }}
+  BMM_NOTIFICATION_LISTENER_URL: {{ .Values.bmm.env.notification_listener_url | quote }}
+{{- else }}
+  BMM_NOTIFICATION_LISTENER_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.dns_url }}
+  BMM_DNS_URL: {{ .Values.bmm.env.dns_url | quote }}
+{{- else }}
+  BMM_DNS_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.central_inventory_url }}
+  BMM_CENTRAL_INVENTORY_URL: {{ .Values.bmm.env.central_inventory_url | quote }}
+{{- else }}
+  BMM_CENTRAL_INVENTORY_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.central_inventory_url_ext }}
+  BMM_CENTRAL_INVENTORY_URL_EXT: {{ .Values.bmm.env.central_inventory_url_ext | quote }}
+{{- else }}
+  BMM_CENTRAL_INVENTORY_URL_EXT: ""
+{{- end }}
+{{- if .Values.bmm.env.keycloak_url }}
+  BMM_KEYCLOAK_URL: {{ .Values.bmm.env.keycloak_url | quote }}
+{{- else }}
+  BMM_KEYCLOAK_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.keycloak_client }}
+  BMM_KEYCLOAK_CLIENT: {{ .Values.bmm.env.keycloak_client | quote }}
+{{- else }}
+  BMM_KEYCLOAK_CLIENT: "rcp"
+{{- end }}
+{{- if .Values.bmm.env.user_management_url }}
+  BMM_USER_MANAGEMENT_URL: {{ .Values.bmm.env.user_management_url | quote }}
+{{- else }}
+  BMM_USER_MANAGEMENT_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.dns_suffix }}
+  BMM_DNS_SUFFIX: {{ .Values.bmm.env.dns_suffix | quote }}
+{{- else }}
+  BMM_DNS_SUFFIX: ""
+{{- end }}
+{{- if .Values.bmm.env.dns_api_key }}
+  BMM_DNS_API_KEY: {{ .Values.bmm.env.dns_api_key | quote }}
+{{- else }}
+  BMM_DNS_API_KEY: ""
+{{- end }}
+{{- if .Values.bmm.env.keycloak_user }}
+  BMM_KEYCLOAK_USER: {{ .Values.bmm.env.keycloak_user | quote }}
+{{- else }}
+  BMM_KEYCLOAK_USER: ""
+{{- end }}
+{{- if .Values.bmm.env.keycloak_pass }}
+  BMM_KEYCLOAK_PASS: {{ .Values.bmm.env.keycloak_pass | quote }}
+{{- else }}
+  BMM_KEYCLOAK_PASS: ""
+{{- end }}
+{{- if .Values.bmm.env.security_module_url }}
+  BMM_SECURITY_MODULE_URL: {{ .Values.bmm.env.security_module_url | quote }}
+{{- else }}
+  BMM_SECURITY_MODULE_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.security_module_auth_token }}
+  BMM_SECURITY_MODULE_AUTH_TOKEN: {{ .Values.bmm.env.security_module_auth_token | quote }}
+{{- else }}
+  BMM_SECURITY_MODULE_AUTH_TOKEN: ""
+{{- end }}
+{{- if .Values.bmm.env.security_module_apikey }}
+  BMM_SECURITY_MODULE_APIKEY: {{ .Values.bmm.env.security_module_apikey | quote }}
+{{- else }}
+  BMM_SECURITY_MODULE_APIKEY: ""
+{{- end }}
+{{- if .Values.bmm.env.register_to_dns_server }}
+  BMM_REGISTER_TO_DNS_SERVER: {{ .Values.bmm.env.register_to_dns_server | quote }}
+{{- else }}
+  BMM_REGISTER_TO_DNS_SERVER: "true"
+{{- end }}
+{{- if .Values.bmm.env.gateway_url }}
+  GATEWAY_URL: {{ .Values.bmm.env.gateway_url | quote }}
+{{- else }}
+  GATEWAY_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.automation_studio_url }}
+  BMM_AUTOMATION_STUDIO_URL: {{ .Values.bmm.env.automation_studio_url | quote }}
+{{- else }}
+  BMM_AUTOMATION_STUDIO_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.foresight_url }}
+  FORESIGHT_STUDIO_URL: {{ .Values.bmm.env.foresight_url | quote }}
+{{- else }}
+  FORESIGHT_STUDIO_URL: ""
+{{- end }}
+{{- if .Values.bmm.env.hle_auth_token }}
+  HLE_AUTH_TOKEN: {{ .Values.bmm.env.hle_auth_token | quote }}
+{{- else }}
+  HLE_AUTH_TOKEN: ""
+{{- end }}
+{{- if .Values.bmm.env.hle_apikey }}
+  HLE_APIKEY: {{ .Values.bmm.env.hle_apikey | quote }}
+{{- else }}
+  HLE_APIKEY: ""
+{{- end }}
+{{- if .Values.bmm.env.aus_auth_token }}
+  AUS_AUTH_TOKEN: {{ .Values.bmm.env.aus_auth_token | quote }}
+{{- else }}
+  AUS_AUTH_TOKEN: ""
+{{- end }}
+{{- if .Values.bmm.env.aus_apikey }}
+  AUS_APIKEY: {{ .Values.bmm.env.aus_apikey | quote }}
+{{- else }}
+  AUS_APIKEY: ""
+{{- end }}
+{{- if .Values.bmm.env.foresight_apikey }}
+  FORESIGHT_APIKEY: {{ .Values.bmm.env.foresight_apikey | quote }}
+{{- else }}
+  FORESIGHT_APIKEY: ""
+{{- end }}
+{{- if .Values.bmm.env.foresight_auth_token }}
+  FORESIGHT_AUTH_TOKEN: {{ .Values.bmm.env.foresight_auth_token | quote }}
+{{- else }}
+  FORESIGHT_AUTH_TOKEN: ""
+{{- end }}
+  BMM_DEPLOYMENT_TYPE: {{ include "bmmDeploymentTypeValidate" .  | required "Correct BMM deploymentType value is required. The valid values are 'telus', 'ngdu', 'rmi', 'one_und_one' and 'na' " }}
+  BASIC_AUTH: {{ .Values.bmm.dashboard.basic_auth | quote }}
+  BASE_PATH: {{ .Values.bmm.dashboard.base_path | quote }}
+  USE_MOCK_CI : "false"
+  USE_MOCK_NAMING : "false"
+  USE_MOCK_IPAM : "false"
+---

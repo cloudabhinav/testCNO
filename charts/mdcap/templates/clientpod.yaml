@@ -1,0 +1,241 @@
+{{/*
+Copyright (C) 2023 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-client-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/clientpod-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-client-gc-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/clientpod-gc-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-client-env
+  namespace: {{ .Release.Namespace }}
+data:
+  POD_NAME: {{ .Release.Name }}-client
+  MDCAP_SSL_CERTS_DIR: /etc/mdcap/certs
+  MDCAP_ENGINE_URL: "https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:8000/api/v1"
+  MDCAP_CLIENTPOD_UDP_HOST: {{ .Release.Name }}-client-ssh.{{ .Release.Namespace }}.svc.cluster.local
+  MDCAP_CLIENTPOD_UDP_PORT: "22"
+  MDCAP_CLIENTPOD_UDP_USER: "root"
+  MDCAP_DEFAULT_CONTEXT: "https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.engine.rorcPort }}"
+  MDCAP_LOG_HOST: {{ .Release.Name }}-logstore.{{ .Release.Namespace }}.svc.cluster.local
+  MDCAP_ARTIFACTORY_HOST: {{ .Release.Name }}-artifactory.{{ .Release.Namespace }}.svc.cluster.local
+  MDCAP_ENGINE_HOST: {{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local
+  POD_NS: {{ .Release.Namespace }}
+  MDCAP_LOG_URL: https://{{ .Release.Name }}-logstore.{{ .Release.Namespace }}.svc.cluster.local:8000
+  PLAYGROUND_ROOT_PASSWORD: {{ .Values.client.env.ROOT_PASSWORD }}
+  MDCAP_CLIENTPOD_HOST: "https://{{ .Release.Name }}-client.{{ .Release.Namespace }}.svc.cluster.local:8000"
+  SITE1_VIP: {{ required "A value must be entered for IP" .Values.client.db.ip }}
+  ETCD_CONTROL_PORT: {{ .Values.client.etcdports.control | quote }}
+  ETCD_DATA_PORT: {{ .Values.client.etcdports.data | quote }}
+  DR_ROLE: "{{ .Values.dr.role }}"
+  IAM_GC_MAX_AGE: "{{ .Values.client.iamGcMaxAge | default 30 }}"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    role: {{ .Release.Name }}-client-depl
+    release: {{ .Release.Name }}
+    app: {{ .Release.Name }}-client
+  name: {{ template "client.fullname" . }}
+{{- if .Values.client.annotations }}
+  annotations:
+{{ toYaml .Values.client.annotations | indent 4 }}
+{{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-client
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+    {{- if .Release.IsUpgrade }}
+      maxUnavailable: 1
+    {{- else }}
+      maxUnavailable: 30%
+    {{- end }}
+      maxSurge: 1
+  template:
+    metadata:
+      annotations:
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+{{- if .Values.client.annotations }}
+{{ toYaml .Values.client.annotations | indent 8 }}
+{{- end }}
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-client
+        release: {{ .Release.Name }}
+        app: {{ .Release.Name }}-client
+      name: {{ .Release.Name }}-client
+      namespace: {{ .Release.Namespace }}
+    spec:
+{{- include "client.imagePullSecrets" . | nindent 6 }}
+{{ if .Values.client.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.client.nodeSelector | indent 8 }}
+{{ end }}
+      containers:
+      - command: 
+        - /scripts/clientpod-entrypoint.sh
+        - python3
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-client-env        
+        image: {{ include "client.image" . }}
+        imagePullPolicy: "{{ .Values.client.image.pullPolicy }}"
+        name: {{ .Release.Name }}-client
+        resources:
+{{ toYaml .Values.client.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /scripts/clientpod-entrypoint.sh
+          name: entrypoint-script
+          subPath: clientpod-entrypoint.sh
+        - mountPath: /.robin/scripts/certs
+          name: cert-secret
+          readOnly: true
+        - mountPath: "{{ .Values.client.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-client-volume-01
+        - mountPath: /var/run/secrets/iams
+          name: iam-secrets
+      - name: gc
+        image: {{ include "client.image" . }}
+        imagePullPolicy: "{{ .Values.client.image.pullPolicy }}"
+        command:
+        - /scripts/clientpod-gc-entrypoint.sh
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-client-env
+        volumeMounts:
+        - mountPath: /scripts/clientpod-gc-entrypoint.sh
+          name: gc-entrypoint-script
+          subPath: clientpod-gc-entrypoint.sh
+        - mountPath: /var/run/secrets/iams
+          name: iam-secrets
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostAliases:
+      hostname: {{ .Release.Name }}-client-01
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-client-entrypoint-configmap
+          defaultMode: 0755
+      - name: gc-entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-client-gc-entrypoint-configmap
+          defaultMode: 0755
+      - name: cert-secret
+        secret:
+          secretName: {{ .Release.Name }}-tlscert-secret
+          defaultMode: 0420
+      - name: {{ .Release.Name }}-client-volume-01
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-client-pvc-01
+      - name: iam-secrets
+        emptyDir:
+          medium: Memory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-client
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: {{ .Release.Name }}-client
+      port: 8000
+      protocol: TCP
+  selector:
+    app: {{ .Release.Name }}-client
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-client-wetty
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: {{ .Release.Name }}-client-wetty
+      port: 8001
+      protocol: TCP
+  selector:
+    app: {{ .Release.Name }}-client
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-client-ssh
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - name: {{ .Release.Name }}-client-ssh
+    port: 22
+    protocol: TCP
+    targetPort: 22
+  selector:
+    app: {{ .Release.Name }}-client
+  type: ClusterIP
+  clusterIP: None
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-client-pvc-01
+  annotations:
+{{- include "util.storage.rwxAnnotation" ( dict "persistentVolume" .Values.client.persistentVolume ) | nindent 4 }}
+{{- if .Values.client.persistentVolume.annotations }}
+{{ toYaml .Values.client.persistentVolume.annotations | nindent 4 }}
+{{- end }}
+spec:
+  accessModes:
+    - {{ .Values.client.persistentVolume.accessMode }}
+{{- include "client.storageclass.name" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.client.persistentVolume.size }}

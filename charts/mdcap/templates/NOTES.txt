@@ -1,0 +1,165 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+Thank you for installing {{ .Chart.Name }}. Your release is named {{ .Release.Name }}.
+
+Please be patient while the release installs. 
+
+The following workload resources are installed in this release.
+Deployments:
+  1. {{ .Release.Name }}-artifactory with 1 pod
+  2. {{ .Release.Name }}-logstore with 1 pod
+  3. {{ .Release.Name }}-client with 1 pod
+  4. {{ .Release.Name }}-dashboard with 1 pod
+  5. {{ .Release.Name }}-nginx with 2 pods
+  6. {{ .Release.Name }}-eventmgr with 1 pod
+{{- if .Values.vmetrics.enabled }}
+  7. {{ .Release.Name }}-vmetrics with 1 pod
+  8. {{ .Release.Name }}-grafana with 1 pod
+{{- end }}
+StatefulSets:
+  1. {{ .Release.Name }}-engine with {{ .Values.engine.replicaCount }} pods
+
+To check the status of all the pods for this release, execute:
+  $ kubectl get pods -n {{ .Release.Namespace }}  | grep {{ .Release.Name }}
+
+To check mdcapds connection details:
+  # Get client pod name
+  POD=$(kubectl get pod -n {{ .Release.Namespace }} -l app={{ .Release.Name }}-client -o jsonpath="{.items[0].metadata.name}")
+  # Run client command
+  kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds info
+  # Explore additional client commands
+  kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds --help
+
+To scale the mdcapds release from 1 site to 3 sites:
+  # Get client pod name
+  POD=$(kubectl get pod -n {{ .Release.Namespace }} -l app={{ .Release.Name }}-client -o jsonpath="{.items[0].metadata.name}")
+  1. At Site1, Add Site2 to ETCD ring
+     kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds etcd add site2.ip site2.etcd.control.port
+  2. Install helm chart at Site2
+     helm install --set ip=site2.ip --set peers[0]=site1.ip ==set peers[1]=site2.ip rest.of.command.line
+  3. At Site1, Add Site3 to ETCD ring
+     kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds etcd add site3.ip site3.etcd.control.port
+  4. Install helm chart at Site3
+     helm install --set ip=site3.ip --set peers[0]=site1.ip --set peers[1]=site2.ip --set peers[2]=site3.ip rest.of.command.line
+  5. At Site1, Remove extra etcd members
+     kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds etcd remove site1.etcd.replica2.memberid
+     kubectl exec -n {{ .Release.Namespace }} $POD -- mdcapds etcd remove site1.etcd.replica3.memberid
+     kubectl scale sts -n {{ .Release.Namespace }} {{ .Release.Name }}-etcd --replicas=1
+  6. At Site1, Remove extra postgresql members
+     kubectl scale sts -n {{ .Release.Namespace }} {{ .Release.Name }}-postgresql --replicas=1
+
+To access through CLI:
+{{ if .Values.externalIp }}
+  1. Download the cli binary by executing following command on your local host:
+
+    IPV4:
+      curl -k -O https://{{ .Values.externalIp}}:{{ .Values.nginx.env.httpsNodePort }}/artifact/api/v1/mdcapbin/mdcap && chmod +x mdcap
+
+    IPV6:
+       curl -g -6 -k -O https://[{{ .Values.externalIp }}]:{{ .Values.nginx.env.httpsNodePort }}/artifact/api/v1/mdcapbin/mdcap && chmod +x mdcap
+
+  2. Point mdcap cli to mdcap server:
+
+    IPV4:
+      ./mdcap server-context set default https://{{ .Values.externalIp}}:{{ .Values.nginx.env.httpsNodePort }} -d
+
+    IPV6
+      ./mdcap server-context set default https://[{{ .Values.externalIp}}]:{{ .Values.nginx.env.httpsNodePort }} -d
+
+  3. Login to mdcap with your provided credentials:
+
+    ./mdcap login <user> -p <password>
+
+  4. For more help on mdcap cli options:
+
+    ./mdcap --help
+
+  Note: If the above command results in locale related error, please check if it is set correctly on your host. 
+  To check, you may execute the following command:
+   
+   locale
+
+  If LANG and LC_ALL are missing you may need to set them to the locale applicable to your host using following instructions:
+  (Below are the minimum number of values for posix locale generally applicable on POSIX compliant hosts, depending upon region your locale may vary)
+
+  export LC_ALL=C.UTF-8
+  export LANG=C.UTF-8
+
+To access through GUI:
+  1. Open the browser and access the UI pointing your browser to:
+   
+    IPV4:
+      https://{{ .Values.externalIp}}:{{ .Values.nginx.env.httpsNodePort }}
+
+    IPV6:
+      https://[{{ .Values.externalIp}}]:{{ .Values.nginx.env.httpsNodePort }}
+
+
+{{ else}}
+
+  1. Download the cli binary by executing following command on your local host:
+
+    IPV4:
+      curl -k -O https://<Cluster Node's Physical IP>:{{ .Values.nginx.env.httpsNodePort }}/artifact/api/v1/mdcapbin/mdcap && chmod +x mdcap
+
+    IPV6:
+       curl -g -6 -k -O https://[<Cluster Node's Physical IP>]:{{ .Values.nginx.env.httpsNodePort }}/artifact/api/v1/mdcapbin/mdcap && chmod +x mdcap
+
+
+  2. Point mdcap cli to mdcap server:
+
+    IPV4:
+      ./mdcap server-context set default https://<Cluster Node's Physical IP>:{{ .Values.nginx.env.httpsNodePort }} -d
+
+    IPV6:
+      ./mdcap server-context set default https://[<Cluster Node's Physical IP>]:{{ .Values.nginx.env.httpsNodePort }} -d
+
+  3. Login to mdcap with your provided credentials:
+
+    ./mdcap login <user> -p <password>
+
+  4. For more help on mdcap cli options:
+
+    ./mdcap --help
+
+  Note: If the above command results in locale related error, please check if it is set correctly on your host. 
+  To check, you may execute the following command:
+   
+   locale
+
+  If LANG and LC_ALL are missing you may need to set them to the locale applicable to your host using following instructions:
+  (Below are the minimum number of values for posix locale generally applicable on POSIX compliant hosts, depending upon region your locale may vary)
+
+  export LC_ALL=C.UTF-8
+  export LANG=C.UTF-8
+
+To access through GUI:
+  1. Open the browser and access the UI pointing your browser to:
+   
+    IPV4:
+      https://<Cluster Node's Physical IP>:{{ .Values.nginx.env.httpsNodePort }}
+
+    IPV6 :
+      https://[<Cluster Node's Physical IP>]:{{ .Values.nginx.env.httpsNodePort }}
+{{ end }}
+
+To learn more about the release, try:
+  $ helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+  $ helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+{{ if .Release.IsUpgrade }}
+  IMPORTANT:
+    There will be a small downtime associated with this release upgrade if and only if the following pods have RWO volumes backing them:
+      - logstore
+      - playground
+      - artifactory
+      - vmetrics
+
+    The service disruption will be present during the upgrade whilst the pods backed by RWO volumes are being recreated. Note this does not apply if the aforementioned pods have been deployed with RWX volumes.
+{{ end }}
+
+
+IMPORTANT for urls with dynmaic nodeport:
+    Above specified ports against urls wont work if nodeport is dynamic describe {{ .Release.Name }}-nginx-np-0 service for all NodePorts
+    (port names: nginx=httpsNodePort, stats=httpNodePort, plgconsole=sshNodePort)

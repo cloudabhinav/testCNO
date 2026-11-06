@@ -1,0 +1,22 @@
+#
+# Copyright (C) 2024 Robin.io All Rights Reserved.
+#
+[sources.dr_input]
+type = "file"
+read_from = "beginning"
+include = [ "/data/**/*" ]
+exclude = [ "/data/**/*.tar", "/data/**/*.tgz", "/data/index.csv" ]
+fingerprint.strategy="device_and_inode"
+max_read_bytes =   419430400
+
+[sinks.dr_kafka]
+type = "kafka"
+encoding.codec = "json"
+inputs = [ "dr_input" ]
+bootstrap_servers = "10.9.82.43:30929"
+topic = "demo1"
+
+[api]
+enabled = true
+playground = false
+#address = "0.0.0.0:8686"

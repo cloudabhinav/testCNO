@@ -1,0 +1,172 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-eventmgr-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/eventmgr-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-eventmgr-env
+  namespace: {{ .Release.Namespace }}
+data:
+  RUST_LOG: actix_web=debug
+  RUST_BACKTRACE: "1"
+  APPNAME: {{ .Release.Name }}
+  PORT: "8000"
+  DATABASE_URL: "sqlite://{{ .Values.eventmgr.persistentVolume.mountPath }}/events.db"
+  EVENT_CACHE_PAGESIZE: "100"
+  MDCAP_ENGINE_URL: "https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:8000"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    role: {{ .Release.Name }}-eventmgr-depl
+    app: {{ .Release.Name }}-eventmgr
+    release: {{ .Release.Name }}
+  name: {{ template "eventmgr.fullname" . }}
+{{- if .Values.eventmgr.annotations }}
+  annotations:
+{{ toYaml .Values.eventmgr.annotations | indent 4 }}
+{{- end }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-eventmgr
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+    {{- if .Release.IsUpgrade }}
+      maxUnavailable: 1
+    {{- else }}
+      maxUnavailable: 30%
+    {{- end }}
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-eventmgr
+        app: {{ .Release.Name }}-eventmgr
+        release: {{ .Release.Name }}
+      annotations:
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+{{- if .Values.eventmgr.annotations }}
+{{ toYaml .Values.eventmgr.annotations | indent 8 }}
+{{- end }}
+      name: {{ .Release.Name }}-eventmgr
+      namespace: {{ .Release.Namespace }}
+    spec:
+{{- include "eventmgr.imagePullSecrets" . | nindent 6 }}
+{{ if .Values.eventmgr.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.eventmgr.nodeSelector | indent 8 }}
+{{ end }}
+      containers:
+      - command: 
+        - /scripts/eventmgr-entrypoint.sh
+        - /bin/bash
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-eventmgr-env
+        image: {{ include "eventmgr.image" . }}
+        imagePullPolicy: "{{ .Values.eventmgr.image.pullPolicy }}"
+        name: {{ .Release.Name }}-eventmgr
+        livenessProbe:
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 8000
+          timeoutSeconds: 2
+        readinessProbe:
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 8000
+          timeoutSeconds: 2
+        resources:
+{{ toYaml .Values.eventmgr.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/mdcap/certs
+          name: cert-secret
+          readOnly: true
+        - mountPath: /scripts/eventmgr-entrypoint.sh
+          name: entrypoint-script
+          subPath: eventmgr-entrypoint.sh
+        - mountPath: "{{ .Values.eventmgr.persistentVolume.mountPath }}"
+          name: {{ .Release.Name }}-eventmgr-volume-01
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostAliases:
+      hostname: {{ .Release.Name }}-eventmgr
+      priority: 0
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-eventmgr-entrypoint-configmap
+          defaultMode: 0755
+      - name: {{ .Release.Name }}-eventmgr-volume-01
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-eventmgr-pvc-01
+      - name: cert-secret
+        secret:
+          secretName: {{ .Release.Name }}-tlscert-secret
+          defaultMode: 0420
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-eventmgr-pvc-01
+  annotations:
+{{- include "util.storage.rwxAnnotation" ( dict "persistentVolume" .Values.eventmgr.persistentVolume ) | nindent 4 }}
+{{- if .Values.eventmgr.persistentVolume.annotations }}
+{{ toYaml .Values.eventmgr.persistentVolume.annotations | nindent 4 }}
+{{- end }}
+spec:
+  accessModes:
+    - {{ .Values.eventmgr.persistentVolume.accessMode }}
+{{- include "eventmgr.storageclass.name" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.eventmgr.persistentVolume.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-eventmgr
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+    - name: event
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+  selector:
+    app: {{ .Release.Name }}-eventmgr
+  type: ClusterIP

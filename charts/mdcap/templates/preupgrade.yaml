@@ -1,0 +1,109 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-pre-db-upgrade"
+  namespace: {{ .Release.Namespace }}
+  labels:
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}"
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+    spec:
+{{- include "upgrade.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: Never
+      containers:
+      - name: dbupgrade
+        image: {{ include "upgrade.image" . }}
+        env:
+        - name: MDCAP_ENGINE_URL
+          value: https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:8000
+        - name: MDCAP_VERSION_NEW
+          value: {{ .Chart.Version | quote }}
+        - name: MDCAP_DB_USER
+          value: {{ required "A value must be entered for .Values.postgres.User" .Values.postgres.user }}
+        - name: MDCAP_DB_PASSWORD
+          value: {{ required "A value must be entered for .Values.postgres.Password" .Values.postgres.password }}
+        - name: MDCAP_ETCD_IP
+          value: {{ required "A value must be entered for .Values.etcd.ip" .Values.etcd.ip }}
+        - name: MDCAP_ETCD_PORT
+          value: {{ required "A value must be entered for .Values.etcd.port" .Values.etcd.port | quote }}
+        - name: MDCAP_CDN_URL
+          value: https://{{ .Release.Name }}-artifactory.{{ .Release.Namespace }}.svc.cluster.local:8443
+        command:
+        - /upgrade_cli
+        - pre-db-upgrade
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-pre-upgrade"
+  namespace: {{ .Release.Namespace }}
+  labels:
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-1"
+    "helm.sh/hook-delete-policy": hook-succeeded
+spec:
+  template:
+    metadata:
+      name: "{{ .Release.Name }}"
+{{- if .Values.podAnnotations }}
+      annotations:
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+    spec:
+{{- include "upgrade.imagePullSecrets" . | nindent 6 }}
+      restartPolicy: Never
+      containers:
+      - name: dbupgrade
+        image: {{ include "upgrade.image" . }}
+        env:
+        - name: MDCAP_RELEASE_NAME
+          value: {{ .Release.Name | quote }}
+        - name: POD_NAMESPACE
+          value: {{ .Release.Namespace | quote }}
+        - name: MDCAP_ENGINE_NAME
+          value: {{ template "engine.fullname" . }}
+        - name: MDCAP_ARTIFACTORY_NAME
+          value: {{ template "artifactory.fullname" . }}
+        - name: MDCAP_DASHBOARD_NAME
+          value: {{ template "dashboard.fullname" . }}
+        - name: MDCAP_DB_USER
+          value: {{ required "A value must be entered for .Values.postgres.User" .Values.postgres.user }}
+        - name: MDCAP_DB_PASSWORD
+          value: {{ required "A value must be entered for .Values.postgres.Password" .Values.postgres.password }}
+        - name: MDCAP_ETCD_IP
+          value: {{ required "A value must be entered for .Values.etcd.ip" .Values.etcd.ip }}
+        - name: MDCAP_ETCD_PORT
+          value: {{ required "A value must be entered for .Values.etcd.port" .Values.etcd.port | quote }}
+        - name: DR_RECOVERY
+          value: {{ .Values.dr.drRecovery | quote}}
+        command:
+        - /upgrade_cli
+        - pre-upgrade
+        resources:
+          requests:
+            cpu: 500m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

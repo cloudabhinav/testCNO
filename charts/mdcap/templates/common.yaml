@@ -1,0 +1,28 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-tlscert-secret
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+type: Opaque
+data:
+{{ ( include "util.mdcap.gen-certs" . ) | indent 2 }}
+---
+{{ if .Values.imageCredentials.registry }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-imagepull-secret
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: {{ template "imagePullSecret" . }}
+{{ end }}
+---

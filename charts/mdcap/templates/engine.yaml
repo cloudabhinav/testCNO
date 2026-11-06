@@ -1,0 +1,416 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+{{ if not .Values.engine.secretNameOverride }}
+---
+apiVersion: v1
+data:
+  MDCAP_ADMIN_PASSWORD: {{ "admin" | b64enc }}
+  MDCAP_JWT_SECRET: {{ .Values.engine.jwtSecret | b64enc }}
+kind: Secret
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-engine-secret
+  namespace: {{ .Release.Namespace }}
+type: opaque
+{{ end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-engine-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/engine-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-engine-config
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/config/engine.config").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-engine-env
+  namespace: {{ .Release.Namespace }}
+data:
+  MDCAP_RELEASE_NAME: {{ .Release.Name | quote }}
+  MDCAP_OSS_URL: ""
+  MDCAP_ENV: ""
+  MDCAP_DC: ""
+  OSS_URL_AUTHORIZATION: ""
+  OSS_URL_APIKEY: ""
+  OSS_URL_WSO2: ""
+  AUTO_ARCHIVE: "True"
+  RORC_PORT: {{ .Values.engine.rorcPort | quote }}
+  MDCAP_BASE_CLUSTER: "K8SNATIVE"
+  RORC_DEFAULT_FUNCTION: "changeme"
+  LIVENESS_ENABLED: "False"
+  MDCAP_ADMIN_USERNAME: admin
+  ARCHIVE_AGE: "86400"
+  MDCAP_LOG_HOST: {{ .Release.Name }}-logstore.{{ .Release.Namespace }}.svc.cluster.local
+  MDCAP_EVENTMGR_URL: https://{{ .Release.Name }}-eventmgr.{{ .Release.Namespace }}.svc.cluster.local:8000
+  MDCAP_LOG_URL: https://{{ .Release.Name }}-logstore.{{ .Release.Namespace }}.svc.cluster.local:8000
+{{ if .Values.vmetrics.enabled }}
+  METRICS_IP: {{ .Release.Name }}-vmetrics.{{ .Release.Namespace }}.svc.cluster.local
+  METRICS_GRAFANA_IP: {{ .Release.Name }}-grafana.{{ .Release.Namespace }}.svc.cluster.local
+  METRICS_GRAFANA_USER: {{ .Values.grafana.auth.username }}
+  METRICS_GRAFANA_PASSWORD: {{ .Values.grafana.auth.password }}
+  METRICS_GRAFANA_DATA_DIR: {{ .Values.grafana.persistentVolume.mountPath}}
+{{ end }}
+  DEBUGMODE: "True"
+  MDCAP_CDN_URL: https://{{ .Release.Name }}-artifactory.{{ .Release.Namespace }}.svc.cluster.local:8443
+  MDCAP_CDN_HTTP_URL: http://{{ .Release.Name }}-artifactory.{{ .Release.Namespace }}.svc.cluster.local:8080
+  NGINX_NP_PORT_HTTP: "8080"
+  NGINX_NP_PORT: "9443"
+  MDCAP_NGINX_PUBLIC_IP: {{ required "Value must be entered for External IP" .Values.externalIp }}
+{{- if .Values.engine.env.cors_origin }}
+  CORS_ORIGIN : {{ .Values.engine.env.cors_origin }}
+{{- else }}
+  CORS_ORIGIN : ""
+{{- end }}
+{{- if .Values.cockpit_hosturl }}
+  MDCAP_COCKPIT_BASEURL : {{ .Values.cockpit_hosturl }}
+  MDCAP_COCKPIT_URLROOT : {{ .Values.cockpit_urlroot }}
+{{- else }}
+  MDCAP_COCKPIT_BASEURL : ""
+  MDCAP_COCKPIT_URLROOT : ""
+{{- end }}
+  KEYCLOAK_REDIRECT_URI: "https://{{ .Values.externalIp }}:9443/login"
+  NGINX_NP_PORT_HTTPS: "9443"
+  MDCAP_CLI_VERSION: "4.3.1-498"
+  MDCAP_SSL_CERTS_DIR: /etc/mdcap/certs
+  POD_NAME: {{ .Release.Name }}-engine
+  MDCAP_DEFAULT_CONTEXT: "https://localhost:{{ .Values.engine.rorcPort }}"
+  MDCAP_DB_USER: {{ required "A value must be entered for .Values.postgres.user" .Values.postgres.user }}
+  MDCAP_DB_PASSWORD: {{ required "A value must be entered for .Values.postgres.password" .Values.postgres.password }}
+  MDCAP_ETCD_IP: {{ required "A value must be entered for .Values.etcd.ip" .Values.etcd.ip }}
+  MDCAP_ETCD_PORT: {{ required "A value must be entered for .Values.etcd.port" .Values.etcd.port | quote }}
+  MDCAP_DB_DATABASE: {{ required "A value must be entered for .Values.postgres.Database" .Values.postgres.database }}
+  ARCHIVE_TIME: "2:30"
+  WEEKLY_LOG_ARCHIVE_DAY: "Sunday"
+  LOG_RETENTION_WEEKS: "16"
+  MDCAP_SCRIPTS_PATH: /mdcap/scripts/app/static
+  MDCAP_VMAAS_PATH: /mdcap/scripts/app/vmaas
+  MDCAP_ENGINE_HOST: {{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local
+  WORKER_CPU: "{{ .Values.taskrunner.resources.cpu }}"
+  WORKER_MEM: "{{ .Values.taskrunner.resources.memory }}"
+  RORC_DEFAULT_ETYPE: BM
+  POD_NAMESPACE: {{ .Release.Namespace }}
+  INIT_WORKER_IMG: {{ include "taskrunner.image" . }}
+{{ if .Values.imageCredentials.registry }}
+  PRIVATE_REGISTRY_FETCH: "True"
+{{end}}
+{{- if .Values.taskrunner.annotations }}
+  WORKER_POD_ANNOTATIONS: {{ include "annotationsToStr" . -}}
+{{- end }}
+  ROBIN_VERSION_533: {{ include "robinVersion533" . | quote }}
+  WORKER_IP_POOLS: ""
+  WORKER_TIMEZONE: ""
+  WORKER_PRIORITY_CLASS: "{{ .Values.workerPriorityClass }}"
+  PLAYGROUND_ROOT_PASSWORD: {{ .Values.client.env.ROOT_PASSWORD }}
+  DR_ROLE: {{ .Values.dr.role | quote }}
+  ENGINE_STANDBY_DELAY: "{{ .Values.dr.engineStandbyDelay }}"
+  CNO_INSTANCE_UID: {{ .Values.engine.cnoInstanceUid | quote }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    role: {{ .Release.Name }}-engine-depl
+    app: {{ .Release.Name }}-engine
+    release: {{ .Release.Name }}
+  name: {{ template "engine.fullname" . }}
+{{- if .Values.engine.annotations }}
+  annotations:
+{{ toYaml .Values.engine.annotations | indent 4 }}
+{{- end }}
+spec:
+  replicas: {{ .Values.engine.replicaCount }}
+  serviceName: "{{ .Release.Name }}-engine"
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-engine
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /api/v1/metrics
+        prometheus.io/port: "8000"
+        prometheus.io/scheme: https
+        prometheus.io/scrape: "true"
+        drrole: {{ .Values.dr.role | quote }}
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+{{- if .Values.engine.annotations }}
+{{ toYaml .Values.engine.annotations | indent 8 }}
+{{- end }}
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-engine
+        app: {{ .Release.Name }}-engine
+        release: {{ .Release.Name }}
+      name: {{ .Release.Name }}-engine
+    spec:
+{{- include "engine.imagePullSecrets" . | nindent 6 }}
+{{ if .Values.engine.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.engine.nodeSelector | indent 8 }}
+{{ end }}
+      initContainers:
+      - name: mdcap-client-check
+        image: {{ include "artifactory.image" . }}
+        command: 
+          - bin/sh
+          - -c
+          - until curl --fail --connect-timeout 2 -k https://{{ .Release.Name }}-client.{{ .Release.Namespace }}.svc.cluster.local:8000/client/api/v1/status ; do echo waiting for {{ .Release.Name }}-client; sleep 2; done;
+        resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+      {{ if .Values.vault.enabled }}
+      - name: vault-injector-check
+        image: {{ include "artifactory.image" . }}
+        command: 
+          - bin/sh
+          - -c
+          - until getent hosts {{ .Release.Name }}-vault-agent-injector-svc; do echo waiting for {{ .Release.Name }}-vault-agent-injector-svc; sleep 2; done;
+        resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+{{ end }}
+{{ if .Values.vmetrics.enabled }}
+      - name: artifactory-grafana-check
+        image: {{ include "artifactory.image" . }}
+        command: 
+          - bin/sh
+          - -c
+          - until curl --fail --connect-timeout 2 -k https://{{ .Release.Name }}-grafana.{{ .Release.Namespace }}.svc.cluster.local:3000 && curl --fail --connect-timeout 2 -k https://{{ .Release.Name }}-artifactory.{{ .Release.Namespace }}.svc.cluster.local:8443/artifact/api/v1/mdcapbin/mdcap; do echo waiting for grafana and artifactory; sleep 2; done;
+        resources:
+              requests:
+                cpu: 500m
+                memory: 512Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+{{ end }}
+      containers:
+      - command:
+        - /engine-entrypoint.sh
+        - engine
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-engine-env
+        - configMapRef:
+            name: {{ .Release.Name }}-bmm-env
+        env:
+        - name: MDCAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: MDCAP_ADMIN_PASSWORD
+              name: {{ .Values.engine.secretNameOverride | default (printf "%s-engine-secret" .Release.Name) }}
+        - name: MDCAP_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: MDCAP_JWT_SECRET
+              name: {{ .Values.engine.secretNameOverride | default (printf "%s-engine-secret" .Release.Name) }}
+        - name: GRAFANA_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: GRAFANA_ADMIN_USERNAME
+              name: {{ .Values.grafana.secretNameOverride | default (printf "%s-grafana-secret" .Release.Name) }}
+        - name: GRAFANA_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GRAFANA_ADMIN_PASSWORD
+              name: {{ .Values.grafana.secretNameOverride | default (printf "%s-grafana-secret" .Release.Name) }}
+        image: {{ include "engine.image" . }}
+        imagePullPolicy: "{{ .Values.engine.image.pullPolicy }}"
+        name: {{ .Release.Name }}-engine
+        livenessProbe:
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 8000
+          timeoutSeconds: 2
+        readinessProbe:
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          successThreshold: 1
+          tcpSocket:
+            port: 8000
+          timeoutSeconds: 2
+        resources:
+{{ toYaml .Values.engine.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /engine-entrypoint.sh
+          name: entrypoint-script
+          subPath: engine-entrypoint.sh
+        - mountPath: /etc/mdcap/certs
+          name: cert-secret
+          readOnly: true
+        - mountPath: /etc/mdcap/config
+          name: {{ .Release.Name }}-engine-config
+        - mountPath: {{ .Values.nginx.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-nginx-conf
+{{- if .Values.vmetrics.enabled }}
+        - mountPath: {{ .Values.vmetrics.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-vmetrics-data
+        - mountPath: {{ .Values.grafana.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-grafana-data
+{{- end }}
+{{- if .Values.engine.mountSrcHostPath }}
+        - mountPath: /mdcap/scripts/app
+          name: {{ .Release.Name }}-engine-src
+{{- end }}
+        - mountPath: /var/cache/helm
+          name: helm-cache
+      - command:
+        - /engine-entrypoint.sh
+        - watcher
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-engine-env
+        - configMapRef:
+            name: {{ .Release.Name }}-bmm-env
+        env:
+        - name: MDCAP_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: MDCAP_ADMIN_PASSWORD
+              name: {{ .Values.engine.secretNameOverride | default (printf "%s-engine-secret" .Release.Name) }}
+        - name: MDCAP_JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: MDCAP_JWT_SECRET
+              name: {{ .Values.engine.secretNameOverride | default (printf "%s-engine-secret" .Release.Name) }}
+        - name: GRAFANA_ADMIN_USERNAME
+          valueFrom:
+            secretKeyRef:
+              key: GRAFANA_ADMIN_USERNAME
+              name: {{ .Values.grafana.secretNameOverride | default (printf "%s-grafana-secret" .Release.Name) }}
+        - name: GRAFANA_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: GRAFANA_ADMIN_PASSWORD
+              name: {{ .Values.grafana.secretNameOverride | default (printf "%s-grafana-secret" .Release.Name) }}
+        image: {{ include "engine.image" . }}
+        imagePullPolicy: "{{ .Values.engine.image.pullPolicy }}"
+        name: {{ .Release.Name }}-trigger
+        resources:
+{{ toYaml .Values.engine.watcher_resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /engine-entrypoint.sh
+          name: entrypoint-script
+          subPath: engine-entrypoint.sh
+        - mountPath: /etc/mdcap/certs
+          name: cert-secret
+          readOnly: true
+        - mountPath: /etc/mdcap/config
+          name: {{ .Release.Name }}-engine-config
+        - mountPath: {{ .Values.nginx.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-nginx-conf
+{{- if .Values.vmetrics.enabled }}
+        - mountPath: {{ .Values.vmetrics.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-vmetrics-data
+        - mountPath: {{ .Values.grafana.persistentVolume.mountPath }}
+          name: {{ .Release.Name }}-grafana-data
+{{- end }}
+{{- if .Values.engine.mountSrcHostPath }}
+        - mountPath: /mdcap/scripts/app
+          name: {{ .Release.Name }}-engine-src
+{{- end }}
+        - mountPath: /var/cache/helm
+          name: helm-cache
+      dnsConfig:
+        options:
+        - name: ndots
+          value: "1"
+      dnsPolicy: ClusterFirst
+      enableServiceLinks: true
+      hostname: {{ .Release.Name }}-engine
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: default
+      serviceAccountName: default
+      terminationGracePeriodSeconds: 30
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-engine-entrypoint-configmap
+          defaultMode: 0755
+      - name: cert-secret
+        secret:
+          secretName: {{ .Release.Name }}-tlscert-secret
+          defaultMode: 0420
+      - name: {{ .Release.Name }}-engine-config
+        configMap:
+          defaultMode: 420
+          name: {{ .Release.Name }}-engine-config
+      - name: {{ .Release.Name }}-nginx-conf
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-nginx-pvc-data
+{{- if .Values.vmetrics.enabled }}
+      - name: {{ .Release.Name }}-vmetrics-data
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-vmetrics-pvc-data
+      - name: {{ .Release.Name }}-grafana-data
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-grafana-pvc-data
+{{- end }}
+{{- if .Values.engine.mountSrcHostPath }}
+      - name: {{ .Release.Name }}-engine-src
+        hostPath:
+          path: {{ .Values.engine.mountSrcHostPath }}
+          type: Directory
+{{- end }}
+      - name: helm-cache
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-engine
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: {{ .Release.Name }}-engine
+  type: ClusterIP
+  ports:
+    - name: engine
+      port: 8000
+      protocol: TCP
+      targetPort: 8000
+---

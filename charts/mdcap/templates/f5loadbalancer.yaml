@@ -1,0 +1,14 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+---
+{{- if .Values.loadbalancer.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: f5-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+data:
+  template: |- 
+    {{ .Files.Get "f5template.json" | nindent 4 }}
+{{ end }}

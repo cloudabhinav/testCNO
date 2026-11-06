@@ -1,0 +1,14 @@
+{{ if eq .Values.defaultPriorityClass "" }}
+{{/*
+Copyright (C) 2022 Robin.io All Rights Reserved.
+*/}}
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Release.Name }}-default
+value: {{ .Values.podPriority.value }}
+preemptionPolicy: {{ .Values.podPriority.preemptionPolicy }}
+globalDefault: {{ .Values.podPriority.globalDefault }}
+description: "Priority class for all pods."
+{{ end }}

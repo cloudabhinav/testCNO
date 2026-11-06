@@ -1,0 +1,22 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mdcap1
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/cloudabhinav/testCNO.git
+    targetRevision: master
+    path: charts/mdcap
+    helm:
+      releaseName: mdcap1
+      valueFiles:
+        - values-cno.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cno
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

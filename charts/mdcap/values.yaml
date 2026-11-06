@@ -1,0 +1,688 @@
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: robin
+nameOverride: ""
+externalIp: ""
+buildNumber: 4.3.1-498
+imageCredentials:
+  registry: artifactory.robinsystems.com
+  username: kapil
+  password: ""
+  email: ""
+podPriority:
+  value: 1000000
+  preemptionPolicy: Never
+  globalDefault: false
+workerPriority:
+  value: 0
+  preemptionPolicy: Never
+artifactory:
+  name: artifactory
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-artifactory
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 4
+      memory: 2Gi
+    requests:
+      cpu: 4
+      memory: 2Gi
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  persistentVolume:
+    accessMode: ReadWriteOnce
+    mountPath: /data
+    size: 30Gi
+    storageClass: robin
+  helmrepo:
+    image: quay.io/robinsys/virtman-operator:v2.0.0
+    resources: {}
+  registry:
+    image: docker.io/library/registry:2
+    resources: {}
+  imgload:
+    image: quay.io/robinsys/virtman-operator:v2.0.0
+    resources: {}
+logstore:
+  name: logstore
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-logstore
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+    robin.io/fstype: xfs
+  persistentVolume:
+    accessMode: ReadWriteOnce
+    mountPath: /data
+    size: 10Gi
+    storageClass: robin
+dr:
+  drRecovery: false
+  engineStandbyDelay: 30
+  enabled: false
+  role: primary
+  logstore:
+    kafkaBootstrapServer: ""
+    logstoreKafkaTopicName: ""
+    consumerGroupID: ""
+    sidecar:
+      name: vector
+      image: artifactory.robinsystems.com/docker/mdcap/helm/timberio/vector:0.35.0-debian
+      imagePullPolicy: IfNotPresent
+      resources:
+        limits:
+          cpu: 1
+          memory: 1Gi
+        requests:
+          cpu: 1
+          memory: 1Gi
+  artifactory:
+    minioAccessKeyId: ""
+    minioSecretAccessKey: ""
+    minioEndpoint: ""
+    minioRegion: ""
+    minioBucketName: ""
+    backupSchedule: '*/1 * * * *'
+    logVerbosity: -v
+    sidecar:
+      name: rclone
+      image: artifactory.robinsystems.com/docker/mdcap/helm/debian:bullseye-slim-rclone
+      imagePullPolicy: IfNotPresent
+      resources:
+        limits:
+          cpu: 2
+          memory: 2Gi
+        requests:
+          cpu: 1
+          memory: 1Gi
+eventmgr:
+  name: eventmgr
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-eventmgr
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  persistentVolume:
+    accessMode: ReadWriteOnce
+    mountPath: /data
+    size: 30Gi
+    storageClass: robin
+postgres:
+  user: ""
+  password: ""
+  database: ""
+etcd:
+  ip: ""
+  port: ""
+dashboard:
+  name: dashboard
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-dashboard
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 3Gi
+    requests:
+      cpu: 1
+      memory: 3Gi
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  env:
+    timeout_standard: 15000
+    timeout_extended: 300000
+    all_apps_link: /symworld/my-apps
+    allowed_origins: ""
+engine:
+  name: engine
+  jwtSecret: a21a0126-e272-43ca-8d4a-a08b673b08f5
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-engine-bin
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  watcher_resources:
+    requests:
+      cpu: 200m
+      memory: 200Mi
+  env:
+    cors_origin: ""
+  replicaCount: 1
+  rorcPort: 8000
+  cnoInstanceUid: ""
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  secretNameOverride: ""
+nginx:
+  name: nginx
+  replicaCount: 1
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: nginx
+    tag: 1.31-alpine
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 2
+      memory: 1Gi
+    requests:
+      cpu: 2
+      memory: 1Gi
+  nodeSelector: {}
+  persistentVolume:
+    accessMode: ReadWriteMany
+    mountPath: /etc/nginx/robinclusters
+    size: 10Gi
+    storageClass: robin-rwx
+    annotations:
+      robin.io/rpool: default
+  annotations:
+    robin.io/roundrobin: host
+  serviceAnnotations: {}
+  loadBalancerSourceRanges: []
+  env:
+    httpsNodePort: ""
+    httpNodePort: ""
+nginxExporter:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: nginx/nginx-prometheus-exporter
+    tag: 0.11.0
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+taskrunner:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-worker
+    tag: 4.3.1-498
+    pullSecrets: []
+  resources:
+    cpu: "1"
+    memory: "1024"
+  annotations:
+    robin.io/roundrobin: host
+taskrunnerk8s:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-worker-k8s
+    tag: 4.3.1-498
+    pullSecrets: []
+  annotations:
+    robin.io/robinrpool: default
+    robin.io/roundrobin: host
+taskrunnerAnsible:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-worker-ansible
+    tag: 4.3.1-498
+    pullSecrets: []
+  annotations:
+    robin.io/robinrpool: default
+    robin.io/roundrobin: host
+functionBuilderPython:
+  image:
+    registry: ""
+    repository: ""
+    tag: ""
+    pullSecrets: []
+  annotations:
+    robin.io/robinrpool: default
+    robin.io/roundrobin: host
+functionBuilderRust:
+  image:
+    registry: ""
+    repository: ""
+    tag: ""
+    pullSecrets: []
+  annotations:
+    robin.io/robinrpool: default
+    robin.io/roundrobin: host
+functionBuilderGolang:
+  image:
+    registry: ""
+    repository: ""
+    tag: ""
+    pullSecrets: []
+  annotations:
+    robin.io/robinrpool: default
+    robin.io/roundrobin: host
+vmetrics:
+  enabled: true
+  name: vmetrics
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: victoriametrics/victoria-metrics
+    tag: v1.94.0
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  env:
+    vmetrics_np_port: 30428
+    retention_period: 1d
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  persistentVolume:
+    accessMode: ReadWriteMany
+    mountPath: /victoria-metrics-data
+    size: 10Gi
+    storageClass: robin-rwx
+  mdcapds:
+    etcd:
+      ports:
+        data: 6611
+grafana:
+  name: grafana
+  ini:
+    path: /etc/grafana/grafana.ini
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: grafana/grafana
+    tag: 10.1.4
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  env:
+    GRAFANA_NP_PORT: 30300
+  nodeSelector: {}
+  annotations:
+    robin.io/roundrobin: host
+  auth:
+    username: admin
+    password: admin
+  secretNameOverride: ""
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  persistentVolume:
+    accessMode: ReadWriteMany
+    mountPath: /etc/grafana
+    size: 10Gi
+    storageClass: robin-rwx
+  database:
+    releaseName: mdcapds
+    host: ""
+    port: ""
+    name: grafana
+    secretNameOverride: ""
+upgrade:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-upgrade
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+vault:
+  enabled: false
+  tls_enabled: false
+  namespace_enabled: false
+  image:
+    registry: artifactory.robinsystems.com
+    repository: docker/mdcap/helm/mdcap-vault-injector
+    tag: 1.2
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  agentImage:
+    repository: artifactory.robinsystems.com/docker/mdcap/helm/mdcap-vault
+    tag: 1.9.0
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  env:
+    VAULT_ADDR: http://172.21.107.219:8200
+    VAULT_AUTH_PATH: changeme
+    VAULT_ROLE_ID: changeme
+    VAULT_SECRET_ID: changeme
+    VAULT_PATH: changeme
+    VAULT_NAMESPACE: changeme
+    VAULT_SECRET_PATH: /etc/secrets
+    CLUSTER_NAME: qctrc001
+    ROLE_NAME: bmm_role
+    APP_PATH: bmm
+    AGENT_INJECT_CPU_REQUEST: 250m
+    AGENT_INJECT_CPU_LIMIT: 500m
+    AGENT_INJECT_MEM_REQUEST: 64Mi
+    AGENT_INJECT_MEM_LIMIT: 128Mi
+bmm:
+  env:
+    ipam_url: ""
+    ipam_url_ext: ""
+    naming_manager_url: ""
+    naming_manager_url_ext: ""
+    notification_listener_url: ""
+    dns_url: ""
+    register_to_dns_server: true
+    central_inventory_url: ""
+    central_inventory_url_ext: ""
+    keycloak_url: ""
+    user_management_url: ""
+    keycloak_client: ""
+    dns_suffix: ""
+    dns_api_key: ""
+    keycloak_user: ""
+    keycloak_pass: ""
+  deploymentType: ""
+  dashboard:
+    basic_auth: 1
+    base_path: ""
+predeleteHook:
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+defaultPriorityClass: ""
+workerPriorityClass: ""
+loadbalancer:
+  f5templatefilePath: f5template.json
+  loadbalancertype: ""
+  servicetype: NodePort
+  enabled: false
+  as3tenant: ""
+  as3app: ""
+  as3pool: ""
+client:
+  name: client
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-clientpod
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: 1
+      memory: 1Gi
+    requests:
+      cpu: 1
+      memory: 1Gi
+  annotations:
+    robin.io/roundrobin: host
+  nodeSelector: {}
+  persistentVolume:
+    accessMode: ReadWriteOnce
+    mountPath: /userdata
+    size: 10Gi
+    storageClass: robin
+    annotations:
+      robin.io/rpool: default
+  env:
+    sshNodePort: 30022
+    ROOT_PASSWORD: UR4C@LDjMDKf8
+  etcdports:
+    data: 6611
+    control: 6612
+  db:
+    ip: ""
+mcp:
+  enabled: false
+  replicas: 1
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-mcp
+    tag: 4.3.1-498
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+  resources:
+    limits:
+      cpu: "1"
+      memory: 1Gi
+    requests:
+      cpu: "1"
+      memory: 1Gi
+  nodeSelector: {}
+podAnnotations:
+  robin.io/robinrpool: default
+keycloak:
+  enabled: false
+  portforward: true
+  fullnameOverride: keycloakcommon
+  namespaceOverride: mdcap
+  clusterDomain: cluster.local
+  useHelmHooks: true
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: bitnamilegacy/keycloak
+    tag: 26.3.3-debian-12-r0
+    digest: ""
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+    debug: false
+  auth:
+    adminUser: admin
+    adminPassword: admin
+    existingSecret: ""
+    passwordSecretKey: ""
+    annotations: {}
+    adminRealm: master
+  httpRelativePath: /
+  cache:
+    enabled: true
+    stack: jdbc-ping
+    configFile: cache-ispn.xml
+    useHeadlessServiceWithAppVersion: false
+  logging:
+    output: default
+    level: INFO
+  containerPorts:
+    http: 8080
+    https: 8443
+    management: 9000
+  containerSecurityContext:
+    enabled: true
+    seLinuxOptions: {}
+    runAsUser: 1001
+    runAsGroup: 1001
+    runAsNonRoot: true
+    privileged: false
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+      - ALL
+    seccompProfile:
+      type: RuntimeDefault
+  resourcesPreset: small
+  livenessProbe:
+    enabled: true
+    initialDelaySeconds: 120
+    periodSeconds: 1
+    timeoutSeconds: 5
+    failureThreshold: 3
+    successThreshold: 1
+  readinessProbe:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  replicaCount: 1
+  updateStrategy:
+    type: RollingUpdate
+  revisionHistoryLimitCount: 10
+  minReadySeconds: 0
+  automountServiceAccountToken: true
+  podAntiAffinityPreset: soft
+  podManagementPolicy: Parallel
+  enableServiceLinks: true
+  service:
+    type: ClusterIP
+    http:
+      enabled: true
+    ports:
+      http: 80
+      https: 443
+    nodePorts:
+      http: ""
+      https: ""
+    extraPorts: []
+    sessionAffinity: None
+    sessionAffinityConfig: {}
+    clusterIP: ""
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+    externalTrafficPolicy: Cluster
+    annotations: {}
+    headless:
+      annotations: {}
+      extraPorts: []
+  defaultInitContainers:
+    prepareWriteDirs:
+      enabled: true
+      containerSecurityContext:
+        enabled: true
+        seLinuxOptions: {}
+        runAsUser: 1001
+        runAsGroup: 1001
+        runAsNonRoot: true
+        privileged: false
+        readOnlyRootFilesystem: true
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        seccompProfile:
+          type: RuntimeDefault
+      resourcesPreset: nano
+      resources: {}
+  externalDatabase:
+    host: ""
+    port: 6623
+    user: postgres
+    password: patron
+    database: postgres
+    schema: public
+    existingSecret: mdcapds-site0-postgres-creds
+    existingSecretUserKey: username
+    existingSecretPasswordKey: password
+    annotations: {}
+    extraParams: ""
+  adminPassword: admin
+  production: true
+  tls:
+    enabled: true
+  postgresql:
+    enabled: false
+    auth:
+      postgresPassword: ""
+      username: bn_keycloak
+      password: ""
+      database: bitnami_keycloak
+      existingSecret: ""
+      secretKeys:
+        userPasswordKey: password
+    architecture: standalone
+  podSecurityContext:
+    enabled: true
+    fsGroupChangePolicy: Always
+    sysctls: []
+    supplementalGroups: []
+    fsGroup: 1001
+  keycloakdefaultInitContainers:
+    prepareWriteDirs:
+      enabled: false
+  initContainers: []
+  diagnosticMode:
+    enabled: false
+    command:
+    - sleep
+    args:
+    - infinity
+  configuration: ""
+  googleLdap:
+    enabled: false
+    clientCertFile: ""
+    clientKeyFile: ""
+    stunnel:
+      image:
+        registry: artifactory.robinsystems.com
+        repository: docker/mdcap/helm/dweomer/stunnel
+        tag: "1.0"
+        pullPolicy: IfNotPresent
+      listenPort: 1636
+      remoteHost: ldap.google.com
+      remotePort: 636
+      clientCertSecretName: ""
+      clientCertKey: client.crt
+      clientKeyKey: client.key
+      logLevel: 7
+    customTruststore:
+      enabled: false
+      caCert: ""
+      caCertSecretName: ""
+      caCertSecretKey: ca.crt
+      alias: custom-ca
+      password: changeit
+      fileName: truststore.jks
+      mountPath: /opt/bitnami/keycloak/conf/truststore
+      secretNameOverride: ""
+playground:
+  image:
+    registry: artifactory.robinsystems.com/docker/mdcap/helm
+    repository: mdcap-playground-slim
+    tag: 4.3.1-498

@@ -1,0 +1,19 @@
+Thank you for installing {{ .Chart.Name }}. Your release is named {{ .Release.Name }}.
+
+Please be patient while the release installs. 
+
+The following statefulsets are installed in this release.
+  1. {{ .Release.Name }}-siteX-etcd
+  2. {{ .Release.Name }}-siteX-postgresql
+
+To check the status of all the pods for this release, execute:
+  kubectl get pods -n {{ .Release.Namespace }}  | grep {{ .Release.Name }}
+
+To learn more about the release, try:
+  1. helm status {{ .Release.Name }} -n {{ .Release.Namespace }}
+  2. helm get all {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+To cleanup the release:
+  helm uninstall {{ .Release.Name }} -n {{ .Release.Namespace }} && \
+  kubectl delete pvc -n {{ .Release.Namespace }} -l application={{ .Release.Name }}-postgresql && \
+  kubectl delete pvc -n {{ .Release.Namespace }} -l application={{ .Release.Name }}-etcd

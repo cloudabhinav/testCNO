@@ -1,0 +1,128 @@
+{{/*
+Copyright (C) 2023 Robin.io All Rights Reserved.
+*/}}
+{{- if .Values.mcp.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-mcp-entrypoint-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  {{ (.Files.Glob "scripts/mcp-entrypoint.sh").AsConfig | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-mcp-env
+  namespace: {{ .Release.Namespace }}
+data:
+  MDCAP_ENGINE_URL: "https://{{ .Release.Name }}-engine.{{ .Release.Namespace }}.svc.cluster.local:8000"
+  MDCAP_SSL_CERTS_DIR: /.robin/scripts/certs
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Release.Name }}-mcp
+    release: {{ .Release.Name }}
+    role: {{ .Release.Name }}-mcp
+  name: {{ template "mcp.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.mcp.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-mcp
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-mcp
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-mcp
+        release: {{ .Release.Name }}
+      name: {{ .Release.Name }}-mcp
+      namespace: {{ .Release.Namespace }}
+    spec:
+{{- include "mcp.imagePullSecrets" . | nindent 6 }}
+{{- if .Values.mcp.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.mcp.nodeSelector | indent 8 }}
+{{- end }}
+      containers:
+      - command:
+        - /scripts/mcp-entrypoint.sh
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-mcp-env
+        image: {{ include "mcp.image" . }}
+        imagePullPolicy: "{{ .Values.mcp.image.pullPolicy }}"
+        name: {{ .Release.Name }}-mcp
+        ports:
+        - containerPort: 8002
+          name: http
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 30
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          failureThreshold: 3
+        resources:
+{{ toYaml .Values.mcp.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /scripts/mcp-entrypoint.sh
+          name: entrypoint-script
+          subPath: mcp-entrypoint.sh
+        - mountPath: /.robin/scripts/certs
+          name: cert-secret
+          readOnly: true
+      restartPolicy: Always
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+      volumes:
+      - name: entrypoint-script
+        configMap:
+          name: {{ .Release.Name }}-mcp-entrypoint-configmap
+          defaultMode: 0755
+      - name: cert-secret
+        secret:
+          secretName: {{ .Release.Name }}-tlscert-secret
+          defaultMode: 0420
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-mcp
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - name: {{ .Release.Name }}-mcp
+    port: 8002
+    protocol: TCP
+    targetPort: 8002
+  selector:
+    app: {{ .Release.Name }}-mcp
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 3600
+  type: ClusterIP
+{{- end }}

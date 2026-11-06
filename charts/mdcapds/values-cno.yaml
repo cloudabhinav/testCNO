@@ -1,0 +1,18 @@
+multiCluster: false
+ip: 10.9.21.101
+peers:
+  - 10.9.21.101
+imageCredentials:
+  password: robin123
+etcd:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+postgresql:
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  persistentVolume:
+    size: 10Gi

@@ -1,0 +1,681 @@
+{{/*
+Copyright (C) 2021 Robin.io All Rights Reserved.
+*/}}
+
+{{- if and (ne .Values.mode  "install") (ne .Values.mode "scale") }}
+{{- fail "Invalid mode, valid modes are install, scale" }}
+{{- end }}
+
+{{- if eq .Values.mode "install" }}
+  {{- if eq (len .Values.peers) 2 }}
+  {{- fail "Invalid number of peers. Please specify either 1 peer (1 site) or 3 peers (3 sites)." }}
+  {{- else if eq (len .Values.peers) 0 }}
+  {{- fail "Invalid number of peers. Please specify either 1 peer (1 site) or 3 peers (3 sites)." }}
+  {{- else if gt (len .Values.peers) 3 }}
+  {{- fail "Invalid number of peers. Please specify either 1 peer (1 site) or 3 peers (3 sites)." }}
+  {{- end }}
+{{- else }}
+  {{- if and (ne (len .Values.peers) 2) (ne (len .Values.peers) 3) }}
+  {{- fail "Invalid number of peers. Please specify either 2 peers (2 sites) or 3 peers (3 sites)." }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app: {{ .Release.Name }}
+  name: {{ .Release.Name }}-postgresql-tlscerts
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-delete-policy": "before-hook-creation"
+type: Opaque
+data:
+{{ ( include "util.postgres.gen-certs" . ) | indent 2 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+  namespace: {{ .Release.Namespace }}
+---
+{{- $control := .Values.postgresql.ports.control -}}
+{{- $data := .Values.postgresql.ports.data -}}
+{{- $releaseName := .Release.Name -}}
+{{- $releaseNamespace := .Release.Namespace -}}
+{{- $ip := .Values.ip -}}
+{{- if and .Values.multiCluster (not $ip) -}}
+{{- fail "A value must be entered for ip when multiCluster is enabled" -}}
+{{- end -}}
+{{- $siteIndex := include "siteindex" . -}}
+{{- range $index := until 3 -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ print $releaseName "-" $siteIndex "-postgresql-" $index }}
+  namespace: {{ $releaseNamespace }}
+  {{- if $.Values.postgresql.serviceAnnotations }}
+  annotations:
+{{ toYaml $.Values.postgresql.serviceAnnotations | indent 4 }}
+  {{- end }}
+spec:
+  {{- if and $.Values.multiCluster $ip }}
+  externalIPs:
+  - {{ $ip }}
+  {{- end }}
+  selector:
+    statefulset.kubernetes.io/pod-name: {{ print $releaseName "-" $siteIndex "-postgresql-" $index }}
+  {{- if $.Values.multiCluster }}
+  externalTrafficPolicy: Cluster
+  {{- end }}
+  ports:
+  - name: postgresql
+    port: {{ add (int $data ) (mul $index 2) }}
+    protocol: TCP
+    targetPort: 5432
+  - name: restapi
+    port: {{ add (int $control ) (mul $index 2) }}
+    protocol: TCP
+    targetPort: 8008
+  - name: metrics
+    port: {{ add (int 9547 ) ($index) }}
+    protocol: TCP
+    targetPort: 9547
+  sessionAffinity: None
+  {{- if $.Values.multiCluster }}
+  type: LoadBalancer
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+---
+{{- end -}}
+apiVersion: v1
+data:
+  password: {{ "patron" | b64enc }}
+  username: {{ "postgres" | b64enc }}
+kind: Secret
+metadata:
+  labels:
+    application: {{ .Release.Name }}-postgresql
+    team: mdcapds
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-creds
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+---
+{{- if .Values.dr.enabled}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-primary
+  namespace: {{ .Release.Namespace }}
+data:
+  AWS_ACCESS_KEY_ID: {{ .Values.dr.minio.username }}
+  AWS_ENDPOINT: {{ .Values.dr.minio.endpoint }}
+  AWS_REGION: {{ .Values.dr.minio.region }}
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  AWS_SECRET_ACCESS_KEY: {{ .Values.dr.minio.password }}
+  BACKUP_NUM_TO_RETAIN: "{{ .Values.dr.minio.backup_ttl_days }}"
+  BACKUP_SCHEDULE: "{{ .Values.dr.minio.backup_schedule }}"
+  CLONE_USE_WALG_RESTORE: "true"
+  USE_WALG_BACKUP: "true"
+  USE_WALG_RESTORE: "true"
+  WAL_BUCKET_SCOPE_PREFIX: ""
+  WAL_BUCKET_SCOPE_SUFFIX: ""
+  WAL_S3_BUCKET: {{ .Values.dr.minio.bucket_forward }}
+  WALG_DISABLE_S3_SSE: "true"
+  WALG_S3_CA_CERT_FILE: "/home/postgres/minio/ca.crt"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-standby
+  namespace: {{ .Release.Namespace }}
+data:
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  # required for spilo:2.0, without this flag, wal-g backup-list hangs, harmless for spilo:3.1
+  STANDBY_AWS_S3_FORCE_PATH_STYLE: "true"
+  STANDBY_AWS_ACCESS_KEY_ID: {{ .Values.dr.minio.username }}
+  STANDBY_AWS_ENDPOINT: {{ .Values.dr.minio.endpoint }}
+  STANDBY_AWS_REGION: {{ .Values.dr.minio.region }}
+  STANDBY_AWS_SECRET_ACCESS_KEY: {{ .Values.dr.minio.password }}
+  STANDBY_METHOD: STANDBY_WITH_WALE
+  STANDBY_WAL_BUCKET_SCOPE_PREFIX: ""
+  STANDBY_WAL_S3_BUCKET: {{ .Values.dr.minio.bucket_backward }}
+  # adjust the bucket path based on the PG VERSION
+  STANDBY_WALE_S3_PREFIX: s3://{{ .Values.dr.minio.bucket_backward }}/spilo/{{ .Release.Name }}/wal/13/
+  USE_WALG_BACKUP: "true"
+  USE_WALG_RESTORE: "true"
+  WAL_BUCKET_SCOPE_PREFIX: ""
+  WAL_BUCKET_SCOPE_SUFFIX: ""
+  WALG_DISABLE_S3_SSE: "true"
+  STANDBY_WALG_S3_CA_CERT_FILE: "/home/postgres/minio/ca.crt"
+---
+{{- $cacrt := .Values.dr.minio.cacrt -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-minio-crt
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+data:
+  ca.crt: |-
+  {{ .Files.Get $cacrt | b64enc | indent 4 }}
+---
+{{- end -}}
+apiVersion: v1
+data:
+  password: {{ "tresagaves" | b64enc }}
+  username: {{ "standby" | b64enc }}
+kind: Secret
+metadata:
+  labels:
+    application: {{ .Release.Name }}-postgresql
+    team: mdcapds
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-standby-creds
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    application: {{ .Release.Name }}-postgresql
+    release: {{ .Release.Name }}
+    app: {{ .Release.Name }}-postgresql
+    team: mdcapds
+  {{- if .Values.postgresql.annotations }}
+  annotations:
+{{ toYaml .Values.postgresql.annotations | indent 4 }}
+  {{- end }}
+spec:
+  podManagementPolicy: OrderedReady
+  {{- if eq (len .Values.peers) 1 }}
+  replicas: 3
+  {{- else }}
+  replicas: 1
+  {{- end }}
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      application: {{ .Release.Name }}-postgresql
+  serviceName: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "9547"
+        prometheus.io/scheme: http
+        prometheus.io/scrape: "true"
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+        application: {{ .Release.Name }}-postgresql
+        team: mdcapds
+        release: {{ .Release.Name }}
+        app: {{ .Release.Name }}-postgresql
+      namespace: {{ .Release.Namespace }}
+    spec:
+{{- include "postgresql.imagePullSecrets" . | nindent 6 }}
+{{ if .Values.postgresql.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.postgresql.nodeSelector | indent 8 }}
+{{ end }}
+      containers:
+      - command: ["/bin/bash","-c"]
+        args:
+          - |
+{{ .Files.Get "scripts/launch_patroni.sh" | indent 12 }}
+        {{- if and (.Values.dr.enabled) (eq .Values.dr.role "primary") }}
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-primary
+        {{- end}}
+        {{- if and (.Values.dr.enabled) (eq .Values.dr.role "standby") }}
+        envFrom:
+        - configMapRef:
+            name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-standby
+        {{- end}}
+        env:
+        - name: SCOPE
+          value: mdcapds
+        - name: PGROOT
+          value: /home/postgres/pgdata/pgroot
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.podIP
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: PGUSER_SUPERUSER
+          value: postgres
+        - name: KUBERNETES_SCOPE_LABEL
+          value: cluster-name
+        - name: KUBERNETES_ROLE_LABEL
+          value: spilo-role
+        - name: PATRONI_REPLICATION_SSLMODE
+          value: require
+        - name: PATRONI_REPLICATION_USERNAME
+          value: standby
+        - name: PATRONI_REPLICATION_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: {{ .Release.Name }}-{{ template "siteindex" . }}-standby-creds
+        - name: PGPASSWORD_SUPERUSER
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: {{ .Release.Name }}-{{ template "siteindex" .}}-postgres-creds
+        - name: PGUSER_STANDBY
+          value: standby
+        - name: PGPASSWORD_STANDBY
+          valueFrom:
+            secretKeyRef:
+              key: password
+              name: {{ .Release.Name }}-{{ template "siteindex" .}}-standby-creds
+        - name: PAM_OAUTH2
+          value: https://info.example.com/oauth2/tokeninfo?access_token= uid realm=/employees
+        - name: HUMAN_ROLE
+          value: zalandos
+        - name: PGVERSION
+          value: "15"
+        - name: KUBERNETES_LABELS
+          value: '{"application":"spilo"}'
+        - name: CONTROL_PORT
+          value: {{ .Values.postgresql.ports.control | quote }}
+        - name: DATA_PORT
+          value: {{ .Values.postgresql.ports.data | quote }}
+        - name: SPILO_CONFIGURATION
+          value: >-
+            {
+               "maximum_lag_on_failover": 1048576,
+               "etcd3": {
+                  "protocol": "https",
+                  "cacert": "/home/postgres/ca.pem",
+                  "cert": "/home/postgres/cert.pem",
+                  "key": "/home/postgres/key.pem",
+                  "hosts": [
+                  {{- if not .Values.multiCluster }}
+                      "{{ .Release.Name }}-site0-etcd-0.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.etcd.ports.data }}",
+                      "{{ .Release.Name }}-site0-etcd-1.{{ .Release.Namespace }}.svc.cluster.local:{{ add .Values.etcd.ports.data 2 }}",
+                      "{{ .Release.Name }}-site0-etcd-2.{{ .Release.Namespace }}.svc.cluster.local:{{ add .Values.etcd.ports.data 4 }}"
+                  {{- else if eq 1 (len .Values.peers) }}
+                      {{- if lt (len .Values.ip) 19 }}
+                        "{{ .Values.ip }}:{{ .Values.etcd.ports.data }}",
+                        "{{ .Values.ip }}:{{ add .Values.etcd.ports.data 2 }}",
+                        "{{ .Values.ip }}:{{ add .Values.etcd.ports.data 4 }}"
+                      {{- else}}
+                        "[{{ .Values.ip }}]:{{ .Values.etcd.ports.data }}",
+                        "[{{ .Values.ip }}]:{{ add .Values.etcd.ports.data 2 }}",
+                        "[{{ .Values.ip }}]:{{ add .Values.etcd.ports.data 4 }}"
+                      {{- end }}
+                  {{- else if eq 2 (len .Values.peers) }}
+                      "{{ index .Values.peers 0 }}:{{ .Values.etcd.ports.data }}",
+                      "{{ index .Values.peers 1 }}:{{ .Values.etcd.ports.data }}"
+                  {{- else if eq 3 (len .Values.peers) }}
+                      "{{ index .Values.peers 0 }}:{{ .Values.etcd.ports.data }}",
+                      "{{ index .Values.peers 1 }}:{{ .Values.etcd.ports.data }}",
+                      "{{ index .Values.peers 2 }}:{{ .Values.etcd.ports.data }}"
+                  {{- end }}
+                  ]
+               },
+               "restapi":{
+                  {{- if .Values.multiCluster }}
+                  "connect_address":"{{ .Values.ip }}:{{ .Values.postgresql.ports.control }}",
+                  {{- else }}
+                  "connect_address":"${POD_IP}:8008",
+                  {{- end }}
+                  "certfile": "/home/postgres/patroni/cert.pem",
+                  "keyfile": "/home/postgres/patroni/key.pem"
+               },
+               {{- if and (.Values.dr.enabled) (eq .Values.dr.role "standby") }}
+               "standby_cluster":{
+                   "create_replica_methods":[
+                       "bootstrap_standby_with_wale",
+                       "basebackup_fast_xlog"
+                   ],
+                   "restore_command": "envdir \"/run/etc/wal-e.d/env-standby\" timeout \"0\" /scripts/restore_command.sh \"%f\" \"%p\""
+               },
+               {{- end }}
+               "postgresql":{
+                  {{- if .Values.multiCluster }}
+                  "connect_address":"{{ .Values.ip }}:{{ .Values.postgresql.ports.data }}",
+                  {{- else }}
+                  "connect_address":"${POD_IP}:5432",
+                  {{- end }}
+                  "remove_data_directory_on_diverged_timelines": "false",
+                  "remove_data_directory_on_rewind_failure": "true",
+                  "parameters":{
+                     {{- if .Values.dr.enabled}}
+                     "archive_mode":"on",
+                     "archive_timeout":"180s",
+                     {{- else }}
+                     "archive_mode":"off",
+                     "archive_timeout":"1800s",
+                     {{- end }}
+                     "autovacuum_analyze_scale_factor":"0.02",
+                     "autovacuum_max_workers":"5",
+                     "autovacuum_vacuum_scale_factor":"0.05",
+                     "checkpoint_completion_target":"0.9",
+                     "hot_standby":"on",
+                     "huge_pages": "off",
+                     "log_autovacuum_min_duration":"0",
+                     "log_checkpoints":"on",
+                     "log_connections":"on",
+                     "log_disconnections":"on",
+                     "log_line_prefix":"%t [%p]: [%l-1] %c %x %d %u %a %h ",
+                     "log_lock_waits":"on",
+                     "log_min_duration_statement":"1000",
+                     "log_statement":"ddl",
+                     "log_temp_files":"0",
+                     "log_rotation_size": "150MB",
+                     "max_replication_slots":"5",
+                     "max_wal_size": "10GB",
+                     "max_wal_senders":"5",
+                     "max_connections":"1000",
+                     "shared_buffers": "{{ .Values.postgresql.configuration.shared_buffers }}",
+                     "tcp_keepalives_idle": "900",
+                     "tcp_keepalives_interval": "120",
+                     "track_functions":"all",
+                     "wal_keep_size": "1GB"
+                  }
+               },
+               "bootstrap":{
+                  "initdb":[
+                     {
+                        "auth-host":"md5"
+                     },
+                     {
+                        "auth-local":"trust"
+                     }
+                  ],
+                  "dcs":{
+                     "maximum_lag_on_failover": 1048576,
+                     {{- if and (.Values.dr.enabled) (eq .Values.dr.role "standby") }}
+                     "standby_cluster":{
+                         "create_replica_methods":[
+                             "bootstrap_standby_with_wale",
+                             "basebackup_fast_xlog"
+                         ],
+                         "restore_command": "envdir \"/run/etc/wal-e.d/env-standby\" timeout \"0\" /scripts/restore_command.sh \"%f\" \"%p\""
+                     },
+                     {{- end }}
+                     "postgresql":{
+                        "remove_data_directory_on_diverged_timelines": "false",
+                        "remove_data_directory_on_rewind_failure": "true",
+                        "parameters":{
+                           "huge_pages": "off",
+                           "max_connections":"1000",
+                           "wal_keep_size": "1GB",
+                           "wal_level":"hot_standby",
+                           "wal_log_hints":"on"
+                        }
+                     }
+                  }
+               }
+            }
+        image: {{ include "postgresql.image" . }}
+        imagePullPolicy: "{{ .Values.postgresql.image.pullPolicy }}"
+        livenessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 5432
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        name: postgres
+        ports:
+        - containerPort: 8008
+          protocol: TCP
+        - containerPort: 5432
+          protocol: TCP
+        - containerPort: 8080
+          protocol: TCP
+        resources:
+{{ toYaml .Values.postgresql.resources | indent 10 }}
+        securityContext:
+          allowPrivilegeEscalation: true
+          privileged: false
+          readOnlyRootFilesystem: false
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /home/postgres/pgdata
+          name: pgdata
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /etc/etcd/certs
+          name: etcd-certs
+          readOnly: true
+        - mountPath: /etc/postgresql/certs
+          name: postgresql-certs
+          readOnly: true
+        {{- if .Values.dr.enabled}}
+        - mountPath: /etc/minio/certs
+          name: minio-certs
+          readOnly: true
+        {{- end }}
+      - name: patroni-exporter
+        env:
+        - name: PATRONI_EXPORTER_PORT
+          value: "9547"
+        - name: PATRONI_EXPORTER_TIMEOUT
+          value: "10"
+        - name: PATRONI_EXPORTER_ADDRESS_FAMILY
+          value: AF_INET6
+        - name: PATRONI_EXPORTER_REQUEST_VERIFY
+          value: "false"
+        - name: MULTI_CLUSTER
+          value: {{ .Values.multiCluster | quote }}
+        - name: IP
+          value: {{ .Values.ip | quote }}
+        - name: CONTROL_PORT
+          value: {{ .Values.postgresql.ports.control | quote }}
+        image: {{ include "patroniExporter.image" . }}
+        imagePullPolicy: "{{ .Values.patroniExporter.image.pullPolicy }}"
+        livenessProbe:
+          tcpSocket:
+            port: 9547
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9547
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        command: ["/bin/sh","-c"]
+        args:
+          - |
+{{ .Files.Get "scripts/launch_patroni_exporter.sh" | indent 12 }}
+        resources:
+{{ toYaml .Values.patroniExporter.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        ports:
+        - containerPort: 9547
+          name: metrics
+          protocol: TCP
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+      serviceAccountName: {{ .Release.Name }}-{{ template "siteindex" .}}-postgresql
+      terminationGracePeriodSeconds: 30
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+      volumes:
+      - emptyDir:
+          medium: Memory
+        name: dshm
+      - name: etcd-certs
+        secret:
+          secretName: {{ .Release.Name }}-etcd-tlscerts
+          defaultMode: 0420
+      - name: postgresql-certs
+        secret:
+          secretName: {{ .Release.Name }}-postgresql-tlscerts
+          defaultMode: 0420
+      {{- if .Values.dr.enabled}}
+      - name: minio-certs
+        secret:
+          secretName: {{ .Release.Name }}-minio-crt
+          defaultMode: 0420
+      {{- end }}
+  updateStrategy:
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      labels:
+        application: {{ .Release.Name }}-postgresql
+      annotations:
+        volume.alpha.kubernetes.io/storage-class: {{ .Values.postgresql.persistentVolume.storageClass }}
+        {{- if .Values.postgresql.persistentVolume.annotations }}
+{{ toYaml .Values.postgresql.persistentVolume.annotations | indent 8 }}
+        {{- end }}
+      name: pgdata
+    spec:
+{{- include "postgresql.storageclass.name" . | nindent 6 }}
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: {{ .Values.postgresql.persistentVolume.size }}
+      volumeMode: Filesystem
+---
+{{/* Service that routes to the current PostgreSQL master/primary */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-pgsql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  ports:
+    - name: postgresql
+      port: {{ .Values.postgresql.ports.data }}
+      protocol: TCP
+      targetPort: 5432
+  selector:
+    spilo-role: master
+    application: {{ .Release.Name }}-postgresql
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ .Release.Name }}-postgresql-exporter
+    release: {{ .Release.Name }}
+  name: {{ .Release.Name }}-postgresql-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-postgresql-exporter
+  strategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: metrics
+        prometheus.io/port: "9187"
+        prometheus.io/scheme: http
+        prometheus.io/scrape: "true"
+{{- if .Values.podAnnotations }}
+{{ toYaml .Values.podAnnotations | indent 8 }}
+{{ end }}
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: {{ .Release.Name }}-postgresql-exporter
+        app: {{ .Release.Name }}-postgresql-exporter
+        release: {{ .Release.Name }}
+      name: {{ .Release.Name }}-postgresql-exporter
+    spec:
+{{- include "postgresqlExporter.imagePullSecrets" . | nindent 6 }}
+      containers:
+      - command:
+        - /bin/sh
+        - -c
+        - /postgres_exporter
+        env:
+        - name: DATA_SOURCE_NAME
+        {{- if .Values.multiCluster }}
+          value: "host={{ .Values.ip }} port={{ .Values.postgresql.ports.data }} user=postgres password=patron database=postgres"
+        {{- else }}
+          value: "host={{ .Release.Name }}-site0-postgresql-0.{{ .Release.Namespace }}.svc.cluster.local port={{ .Values.postgresql.ports.data }} user=postgres password=patron database=postgres"
+        {{- end }}
+        image: {{ include "postgresqlExporter.image" . }}
+        imagePullPolicy: "{{ .Values.postgresqlExporter.image.pullPolicy }}"
+        livenessProbe:
+          tcpSocket:
+            port: 9187
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9187
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        name: {{ .Release.Name }}-postgresql-exporter
+        ports:
+        - containerPort: 9187
+          name: metrics
+          protocol: TCP
+        resources:
+{{ toYaml .Values.postgresqlExporter.resources | indent 10 }}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 10
+      {{ if eq .Values.defaultPriorityClass "" }}
+      priorityClassName: {{ .Release.Name }}-default
+      {{- else }}
+      priorityClassName: {{ .Values.defaultPriorityClass }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-postgresql-exporter
+  namespace: {{ .Release.Namespace }}
+  {{- if .Values.postgresqlExporter.serviceAnnotations }}
+  annotations:
+{{ toYaml .Values.postgresqlExporter.serviceAnnotations | indent 4 }}
+  {{- end }}
+spec:
+  {{- if and .Values.multiCluster .Values.ip }}
+  externalIPs:
+  - {{ .Values.ip }}
+  {{- end }}
+  selector:
+    app: {{ .Release.Name }}-postgresql-exporter
+  {{- if .Values.multiCluster }}
+  type: LoadBalancer
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  ports:
+    - name: metrics
+      port: 9187
+      protocol: TCP
+      targetPort: 9187

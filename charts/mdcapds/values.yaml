@@ -1,0 +1,217 @@
+# Copyright (C) 2021 Robin.io All Rights Reserved.
+
+## @section Global parameters
+## Global Docker image parameters
+## Please, note that this will override the image parameters, including dependencies, configured to use the global value
+## Current available global Docker image parameters: imageRegistry, imagePullSecrets and storageClass
+
+## @param global.imageRegistry Global Docker Image registry
+## @param global.imagePullSecrets Global Docker registry secret names as an array
+## @param global.storageClass Global storage class for dynamic provisioning
+##
+global:
+  imageRegistry: ""
+  ## E.g.
+  ## imagePullSecrets:
+  ##   - myRegistryKeySecretName
+  ##
+  imagePullSecrets: []
+  ## This will be used by all the components for the release. In case you need
+  ## to specify different storage class per component, remove this storage
+  ## class and fill the name for the storageClass per component under
+  ## <componentName>.persistentVolume.storageClass
+  storageClass: "robin"
+
+imageCredentials:
+  registry: "artifactory.robinsystems.com"
+  username: "kapil"
+  password: ""
+  email: "nandan@robin.io"
+
+podPriority:
+  value: 1000000
+  preemptionPolicy: Never
+  globalDefault: false
+
+# Please specify the IPs of cluster peers
+# For HA setups, please use VIP (robin config list | grep vip)
+# For Non-HA setups, please use Host IP
+# Comment/Uncomment the peers array for 1 site, 2 site and 3 sites
+peers:
+  - 10.9.82.119
+  #- 10.9.40.123
+  #- 10.9.82.120
+
+# Please specify the current cluster's VIP/IP where the site will be instantiated
+# This is used to configure external IP
+ip: ""
+
+# Set to false for single cluster deployment where external IP is not required
+# When false, services will use Kubernetes DNS names instead of external IPs
+multiCluster: true
+
+# Installation mode: install/scale
+mode: "install"
+
+
+# Each cluster's ETCD details
+etcd:
+  image: 
+    registry: artifactory.robinsystems.com
+    repository: docker/mdcap/helm/registry.k8s.io/etcd-bash
+    tag: 3.5.16
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  # Database file quota (bytes). The quota applies to the db file, not to free space inside it
+  quotaBackendBytes: 4294967296
+  # Compact the keyspace periodically so the db file does not fill up with old revisions
+  autoCompactionMode: periodic
+  autoCompactionRetention: 1h
+
+  ports:
+    data: 6611
+    control: 6612
+  resources:
+    # unit test
+    #limits:
+    #  cpu: 100m
+    #  memory: 128Mi
+    #requests:
+    #  cpu: 100m
+    #  memory: 128Mi
+    # prod
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  # Please specify any compute helm annotations
+  annotations:
+    robin.io/roundrobin: host
+    robin.io/storageaffinity: host
+
+  nodeSelector: {}
+
+  persistentVolume:
+    size: 5Gi
+    storageClass: "robin"
+    # Please specify any storage helm annotations
+    annotations:
+      robin.io/rpool: default
+
+  serviceAnnotations: {}
+
+# Each cluster's PGSQL details
+postgresql:
+  # prod
+  image:
+    registry: artifactory.robinsystems.com
+    repository: docker/mdcap/helm/ghcr.io/zalando/spilo-15
+    tag: 3.1-p1
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  ports:
+    data: 6623
+    control: 6624
+  configuration:
+    # prod
+    shared_buffers: "512MB"
+    # unit test
+    # shared_buffers: "100MB"
+  resources:
+    # unit test
+    #limits:
+    #  cpu: 500m
+    #  memory: 1Gi
+    #requests:
+    #  cpu: 500m
+    #  memory: 1Gi
+
+    # prod
+    limits:
+      cpu: 2
+      memory: 4Gi
+    requests:
+      cpu: 2
+      memory: 4Gi
+
+  # Please specify any compute helm annotations
+  annotations:
+    robin.io/roundrobin: host
+    robin.io/storageaffinity: host
+
+  nodeSelector: {}
+  serviceAnnotations: {}
+
+  persistentVolume:
+    size: 50Gi
+    storageClass: "robin"
+    # Please specify any storage helm annotations
+    annotations:
+      robin.io/rpool: default
+
+patroniExporter:
+  image:
+    registry: artifactory.robinsystems.com
+    repository: docker/mdcap/helm/patroni-exporter
+    tag: "1.5"
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+postgresqlExporter:
+  image:
+    registry: artifactory.robinsystems.com
+    repository: docker/mdcap/helm/prometheus-community/postgres_exporter
+    tag: 0.12.0
+    pullPolicy: IfNotPresent
+    pullSecrets: []
+
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+  serviceAnnotations: {}
+
+predeleteHookCerts:
+  resources:
+    limits:
+      cpu: 100m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+defaultPriorityClass: ""
+
+dr:
+  enabled: false
+  role: primary
+  minio:
+    bucket_forward: ""
+    bucket_backward: ""
+    username: ""
+    password: ""
+    endpoint: "https://minio.default.svc.cluster.local:9000"
+    cacrt: "certs/ca.crt"
+    region: "us-east-1"
+    backup_schedule: "0 1 * * *"
+    # min is 2
+    backup_ttl_days: "2"
+
+podAnnotations:
+  robin.io/robinrpool: default
