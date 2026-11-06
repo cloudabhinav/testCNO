@@ -1,16 +1,17 @@
 # Single-node Robin: robin-rwx asks for 2 copies on 2 hosts. Force 1 copy.
+# rwxReplicas: 1 -> the chart adds robin.io/rwx_force_single_replica: "1" instead of replication "2"
 nginx:
   persistentVolume:
+    rwxReplicas: 1
     annotations:
-      robin.io/rwx_force_single_replica: "1"
       robin.io/replication: "1"
 vmetrics:
   persistentVolume:
+    rwxReplicas: 1
     annotations:
-      robin.io/rwx_force_single_replica: "1"
       robin.io/replication: "1"
 grafana:
   persistentVolume:
+    rwxReplicas: 1
     annotations:
-      robin.io/rwx_force_single_replica: "1"
       robin.io/replication: "1"
