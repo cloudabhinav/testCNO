@@ -13,6 +13,7 @@ spec:
       releaseName: mdcap1
       valueFiles:
         - values-cno.yaml
+        - values-single-node.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: cno

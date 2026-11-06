@@ -1,0 +1,13 @@
+# Single-node Robin: RWX volumes with 1 copy (repl-2/3 needs 2-3 nodes)
+nginx:
+  persistentVolume:
+    annotations:
+      robin.io/rwx_force_single_replica: "1"
+vmetrics:
+  persistentVolume:
+    annotations:
+      robin.io/rwx_force_single_replica: "1"
+grafana:
+  persistentVolume:
+    annotations:
+      robin.io/rwx_force_single_replica: "1"
