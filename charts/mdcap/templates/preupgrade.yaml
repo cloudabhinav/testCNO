@@ -1,3 +1,4 @@
+{{- if .Values.runUpgradeHooks }}
 {{/*
 Copyright (C) 2021 Robin.io All Rights Reserved.
 */}}
@@ -107,3 +108,5 @@ spec:
           limits:
             cpu: 500m
             memory: 512Mi
+
+{{- end }}
